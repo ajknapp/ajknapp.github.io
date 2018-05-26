@@ -1,0 +1,34 @@
+#+BEGIN_EXPORT html
+---
+layout: page
+title: About
+excerpt: Brief description of Volts, Sheaves, and Trees
+---
+#+END_EXPORT
+
+I'm currently a master's student in statistics, with a background in, well, a lot of stuff.
+Here's a list of the research projects and graduate courses I participated in as an undergrad.
+
+- Research projects (mainly numerical simulations on supercomputers)
+  - Quantum optics (resonances in molecules coupled to plasmonic materials)
+  - Hypersonic shock wave fluid dynamics
+  - Microfluidic magnetohydrodynamics
+- Graduate courses
+  - Differential geometry
+  - Riemannian geometry
+  - Algebraic topology
+  - Geometric control theory
+  - Abstract algebra
+
+Now I've moved into statistics and machine learning, where I'm focusing on Bayesian and information theoretic methods, as well as stuff I can't talk about, because some of it's unpublished and I'm using it for an automated trading system.
+Given my background, it's probably not surprising that I'd like to learn more about topological data analysis and information geometry, but those are on the back burner for now. 
+
+This summer, I'll be participating in the Google Summer of Code, implementing a new form of GPU-friendly reverse-mode automatic differentiation in Haskell, via the =accelerate= library.
+The method should provide an asymptotic speedup for a large class of functions of interest in applied settings.
+
+I picked the name of this site for two reasons.
+One, I like physics, geometry, and algebra.
+Two, the acronym VST is also an acronym for Virtual Studio Technology (a popular plugin standard in digital audio), since I enjoy puttering around with electronic music.
+
+Anyways, you can expect to see a mixture of topics written about here.
+Beyond the stuff mentioned so far, you'll also see functional programming, mainly in Haskell and ATS.
