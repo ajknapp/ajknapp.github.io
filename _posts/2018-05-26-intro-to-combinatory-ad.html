@@ -1,0 +1,260 @@
+---
+layout: post
+title: Introduction to Combinatory Automatic Differentiation
+excerpt: A basic overview of a new method of automatic differentiation.
+---
+
+<p>
+In this blog post, I will describe the basics of a new form of Automatic Differentiation (AD) that I will be implementing in Haskell for the Google Summer of Code, along with some background and why it is expected that the method will yield a speedup for practical problems.
+</p>
+
+<div id="outline-container-orgcdb9569" class="outline-2">
+<h2 id="orgcdb9569">Introduction</h2>
+<div class="outline-text-2" id="text-orgcdb9569">
+<p>
+There's a lot of digital ink that's been spilled on the subject of AD, so I'll outsource the description elsewhere.
+If you want to learn more about AD, or the terms "forward-mode" and "reverse-mode" don't mean anything to you, <a href="http://www.danielbrice.net/blog/automatic-differentiation-is-trivial-in-haskell/">here</a> are some good <a href="http://h2.jaguarpaw.co.uk/posts/reverse-mode-automatic-differentiation/">Haskell-based articles</a> on the subject.
+</p>
+
+<p>
+AD is useful for a wide range of quantitative problems, and it is used extensively in machine learning and optimization&#x2014;especially in neural networks.
+A lot of the work that goes into ML research is calculus: you compute the derivatives of some loss function you want to optimize, and stuff them into some kind of gradient descent woodchipper.
+AD lets you avoid doing these calculations by hand, and focus on dreaming up new things to optimize.
+</p>
+
+<p>
+The problem is that AD can be significantly slower than hand-coded gradient computation.
+Moreover, <a href="https://pdfs.semanticscholar.org/dd3c/a38dc66b7f93b124bb7dc5dfa8601d87b3da.pdf">optimal Jacobian accumulation is NP-complete</a>.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org76f4b44" class="outline-2">
+<h2 id="org76f4b44">The new method</h2>
+<div class="outline-text-2" id="text-org76f4b44">
+<p>
+The method I'll be working on this summer takes a new approach to AD, and is based on in-progress work by Martin Elsman, Fritz Henglein, Gabriele Keller, Ken Friis Larsen, and Dimitrios Vytionitis.
+They refer to the method as "combinatory automatic differentiation", although I think "point-free automatic differentiation" also captures the basic idea.
+</p>
+
+<p>
+There's a lot more to say about the method, but I'll stick to a high-level overview here.
+</p>
+
+<p>
+First, some notation: denote function composition by \(\circ\), and composition of linear maps by \(\bullet\).
+Recall that the <a href="https://en.wikipedia.org/wiki/Fr%C3%A9chet_derivative">Frechet derivative</a> (a generalization of the usual derivative to Banach spaces that spits out the Jacobian when applied to \(f: \mathbb{R}^m \to \mathbb{R}^n\)) is a linear map, and therefore we can write the chain rule like so: \[
+(f \circ g)'(x) = f'(g(x)) \bullet g'(x)
+\]
+In the finite dimensional case, \(\bullet\) is matrix multiplication, which has two key attributes.
+</p>
+<ul class="org-ul">
+<li>It is amenable to parallelization and GPU friendly</li>
+<li>People have been working on making implementations go faster since computers were invented.</li>
+</ul>
+
+<p>
+How does this help us?
+</p>
+
+<p>
+Suppose we have written our program \(f\) as a long series of function compositions. \[
+f = f_k \circ f_{k-1} \circ \cdots \circ f_2 \circ f_1
+\]
+We can always do this with pure functional code, even if the result is extremely hard to understand.
+The Jacobian accumulation problem can then be understood as asking us to choose the operation-count-optimal parenthetical association of functions.
+(Since function composition is associative, all associations will all give the same answer, but some will be faster than others.)
+As special cases, we have forward mode AD \[
+f = f_k \circ (f_{k-1} \circ (\cdots \circ (f_2 \circ f_1) \cdots))
+\]
+and reverse mode AD \[
+f = (\cdots(f_k \circ f_{k-1}) \circ \cdots \circ f_2) \circ f_1
+\]
+</p>
+
+<p>
+The main insight of the combinatory method is that working at the level of these function trains allows us to extract data parallelism from the chain rule, as long as we take care to avoid expression swell and optimize where possible.
+(I will discuss both of these topics in the future.)
+In the combinatory setting, the derivative of our function train might look like this \[
+f' = ( \cdots (f_k \circ f_{k-1}) \circ \cdots \circ f_{k-p})' \bullet (f_j \circ f_{j-1})'
+ \bullet (\cdots(f_m \circ f_{m-1}) \circ \cdots \circ f_{m-n})' \bullet \cdots \bullet (f_2 \circ f_1)'
+\]
+If we split up the function train wisely, we'll be able to spend most of our computational time doing two things when applying AD to practical problems.
+</p>
+<ul class="org-ul">
+<li>Evaluating a Jacobian/Hessian matrix (mostly in parallel)</li>
+<li>Parallel matrix multiplication</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-org36a04ab" class="outline-2">
+<h2 id="org36a04ab">Sketch of an implementation</h2>
+<div class="outline-text-2" id="text-org36a04ab">
+<p>
+I'll now describe a quick and dirty prototype implementation of the idea, which is extremely inefficient&#x2014;it uses list-based matrix multiplication, among other things.
+</p>
+
+<p>
+We'll begin with some imports.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">import</span> <span class="org-haskell-constructor">Data.List</span> <span class="org-rainbow-delimiters-depth-1">(</span>transpose<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+For simplicity, we'll use an extremely sparse expression datatype, which is understood as the point-free composition of functions.
+Eventually, this will be replaced by the AST of <code>accelerate</code>.
+The <code>Pi</code> constructor represents projection onto the \(k\)-th component of a tuple, and it replaces variables.
+(Think of it as a kind of de Bruijn indexing.)
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">data</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Constant</span> <span class="org-haskell-constructor">Double</span>
+  <span class="org-haskell-operator">|</span> <span class="org-haskell-constructor">Pi</span> <span class="org-haskell-constructor">Int</span>
+  <span class="org-haskell-operator">|</span> <span class="org-haskell-constructor">Plus</span> <span class="org-haskell-constructor">AdExpr</span> <span class="org-haskell-constructor">AdExpr</span>
+  <span class="org-haskell-operator">|</span> <span class="org-haskell-constructor">Times</span> <span class="org-haskell-constructor">AdExpr</span> <span class="org-haskell-constructor">AdExpr</span>
+  <span class="org-haskell-keyword">deriving</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Show</span>, <span class="org-haskell-constructor">Eq</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+Let's define a partial <code>Num</code> instance for <code>AdExpr</code>, so we can write things in a nicer way.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">instance</span> <span class="org-haskell-type">Num</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-keyword">where</span>
+  <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">+</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Plus</span>
+  <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">*</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Times</span>
+  fromInteger i <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Constant</span> <span class="org-rainbow-delimiters-depth-1">(</span>fromInteger i<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+Next, we'll define an evaluator for our simple AST at a vector <code>v</code>.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">evalAd</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">Double</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Double</span>
+<span class="org-haskell-definition">evalAd</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> x<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">_</span> <span class="org-haskell-operator">=</span> x
+<span class="org-haskell-definition">evalAd</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pi</span> i<span class="org-rainbow-delimiters-depth-1">)</span> v <span class="org-haskell-operator">=</span> v <span class="org-haskell-operator">!!</span> i
+<span class="org-haskell-definition">evalAd</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Plus</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> v <span class="org-haskell-operator">=</span> evalAd x v <span class="org-haskell-operator">+</span> evalAd y v
+<span class="org-haskell-definition">evalAd</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> v <span class="org-haskell-operator">=</span> evalAd x v <span class="org-haskell-operator">*</span> evalAd y v
+</pre>
+</div>
+<p>
+In this point-free setting, differentiation of an expression is a breeze.
+The <code>diff</code> function differentiates an expression with respect to the \(i\)-th input variable.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">diff</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Int</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">AdExpr</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Plus</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> i <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Plus</span> <span class="org-rainbow-delimiters-depth-1">(</span>diff x i<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>diff y i<span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> i <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Plus</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-2">(</span>diff x i<span class="org-rainbow-delimiters-depth-2">)</span> y<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> x <span class="org-rainbow-delimiters-depth-2">(</span>diff y i<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> <span class="org-haskell-keyword">_</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">_</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">0.0</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pi</span> i<span class="org-rainbow-delimiters-depth-1">)</span> j <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">if</span> i <span class="org-haskell-operator">==</span> j <span class="org-haskell-keyword">then</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">1.0</span> <span class="org-haskell-keyword">else</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">0.0</span>
+</pre>
+</div>
+<p>
+Now that we can differentiate with respect to an individual variable, we can now compute the gradient and Jacobian of functions.
+We use the <code>domainDim</code> function to compute how many "variables" an expression depends on.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">grad</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">grad</span> expr <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>diff expr<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">..</span>domainDim expr <span class="org-haskell-operator">-</span> <span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>
+
+<span class="org-haskell-definition">jacobian</span> <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">jacobian</span> expr <span class="org-haskell-operator">=</span> map grad' expr
+  <span class="org-haskell-keyword">where</span> dim <span class="org-haskell-operator">=</span> max <span class="org-highlight-numbers-number">0</span> <span class="org-haskell-operator">.</span> decf <span class="org-haskell-operator">.</span> maximum <span class="org-haskell-operator">$</span> map domainDim expr
+        decf x <span class="org-haskell-operator">=</span> x<span class="org-haskell-operator">-</span><span class="org-highlight-numbers-number">1</span>
+        grad' e <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>diff e<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">..</span>dim<span class="org-rainbow-delimiters-depth-1">]</span>
+
+<span class="org-haskell-definition">domainDim</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Int</span>
+<span class="org-haskell-definition">domainDim</span> expr <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">if</span> count <span class="org-haskell-operator">==</span> <span class="org-highlight-numbers-number">0</span> <span class="org-haskell-keyword">then</span> <span class="org-highlight-numbers-number">0</span> <span class="org-haskell-keyword">else</span> <span class="org-highlight-numbers-number">1</span> <span class="org-haskell-operator">+</span> count
+  <span class="org-haskell-keyword">where</span> count <span class="org-haskell-operator">=</span> go expr <span class="org-highlight-numbers-number">0</span>
+        go <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pi</span> i<span class="org-rainbow-delimiters-depth-1">)</span> j <span class="org-haskell-operator">=</span> max i j
+        go <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> <span class="org-haskell-keyword">_</span><span class="org-rainbow-delimiters-depth-1">)</span> j <span class="org-haskell-operator">=</span> j
+        go <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Plus</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> j <span class="org-haskell-operator">=</span> max <span class="org-rainbow-delimiters-depth-1">(</span>go x j<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>go y j<span class="org-rainbow-delimiters-depth-1">)</span>
+        go <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> j <span class="org-haskell-operator">=</span> max <span class="org-rainbow-delimiters-depth-1">(</span>go x j<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>go y j<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+Finally, we'll define list-based matrix multiplication.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">matMatMul</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">Num</span> a <span class="org-haskell-operator">=&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span>a<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span>a<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span>a<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">matMatMul</span> a b <span class="org-haskell-operator">=</span>
+ <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span> sum <span class="org-haskell-operator">$</span> zipWith <span class="org-rainbow-delimiters-depth-3">(</span><span class="org-haskell-operator">*</span><span class="org-rainbow-delimiters-depth-3">)</span> ar bc <span class="org-haskell-operator">|</span> bc <span class="org-haskell-operator">&lt;-</span> <span class="org-rainbow-delimiters-depth-3">(</span>transpose b<span class="org-rainbow-delimiters-depth-3">)</span> <span class="org-rainbow-delimiters-depth-2">]</span> <span class="org-haskell-operator">|</span> ar <span class="org-haskell-operator">&lt;-</span> a<span class="org-rainbow-delimiters-depth-1">]</span>
+</pre>
+</div>
+
+<p>
+With this infrastructure, we can define an "efficient" parallelizable implementation of the chain rule, assuming our function train was broken up in such a way that each piece's Jacobian can be evaluated in parallel.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">chain</span> <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">Double</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span><span class="org-haskell-type">Double</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">chain</span> f g a <span class="org-haskell-operator">=</span> matMatMul jfga jga
+  <span class="org-haskell-keyword">where</span> ga <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>evalAd' a<span class="org-rainbow-delimiters-depth-1">)</span> g
+        jga <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>map <span class="org-haskell-operator">$</span> evalAd' a<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">$</span> jacobian g
+        jfga <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>map <span class="org-haskell-operator">$</span> evalAd' ga<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">$</span> jacobian f
+        evalAd' <span class="org-haskell-operator">=</span> flip evalAd
+</pre>
+</div>
+
+<p>
+As an example, we'll define two functions.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">foo</span> <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">foo</span> <span class="org-haskell-operator">=</span>
+  <span class="org-haskell-keyword">let</span>
+    x <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Pi</span> <span class="org-highlight-numbers-number">0</span>
+    y <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Pi</span> <span class="org-highlight-numbers-number">1</span>
+    z <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Pi</span> <span class="org-highlight-numbers-number">2</span>
+  <span class="org-haskell-keyword">in</span> <span class="org-rainbow-delimiters-depth-1">[</span>y<span class="org-haskell-operator">*</span>z <span class="org-haskell-operator">+</span> x<span class="org-haskell-operator">*</span>z <span class="org-haskell-operator">+</span> x<span class="org-haskell-operator">*</span>y, x<span class="org-haskell-operator">*</span>x <span class="org-haskell-operator">+</span> y<span class="org-haskell-operator">*</span>y <span class="org-haskell-operator">+</span> z<span class="org-haskell-operator">*</span>z<span class="org-rainbow-delimiters-depth-1">]</span>
+
+<span class="org-haskell-definition">bar</span> <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">bar</span> <span class="org-haskell-operator">=</span>
+  <span class="org-haskell-keyword">let</span>
+    u <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Pi</span> <span class="org-highlight-numbers-number">0</span>
+    v <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Pi</span> <span class="org-highlight-numbers-number">1</span>
+  <span class="org-haskell-keyword">in</span>
+    <span class="org-rainbow-delimiters-depth-1">[</span>u<span class="org-haskell-operator">*</span>u<span class="org-haskell-operator">+</span><span class="org-highlight-numbers-number">2</span><span class="org-haskell-operator">*</span>v, v<span class="org-haskell-operator">*</span>v<span class="org-haskell-operator">*</span>v<span class="org-haskell-operator">+</span>u<span class="org-rainbow-delimiters-depth-1">]</span>
+</pre>
+</div>
+<p>
+and compute the Jacobian of their composition.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell">&#955;<span class="org-haskell-definition">&gt;</span> chain bar foo <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">1</span>,<span class="org-highlight-numbers-number">2</span>,<span class="org-highlight-numbers-number">3</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span><span class="org-highlight-numbers-number">114.0</span>,<span class="org-highlight-numbers-number">96.0</span>,<span class="org-highlight-numbers-number">78.0</span><span class="org-rainbow-delimiters-depth-2">]</span>,<span class="org-rainbow-delimiters-depth-2">[</span><span class="org-highlight-numbers-number">1181.0</span>,<span class="org-highlight-numbers-number">2356.0</span>,<span class="org-highlight-numbers-number">3531.0</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span>
+</pre>
+</div>
+<p>
+We can also define a function to evaluate the Jacobian of a train of function compositions.
+(In the real implementation, this is another space for optimization. Unlike the Jacobian accumulation problem, there are <a href="https://en.wikipedia.org/wiki/Matrix_chain_multiplication">efficient algorithms</a> for solving the matrix chain multiplication problem.)
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">pipeline</span> <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">Double</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span><span class="org-haskell-type">Double</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">pipeline</span> <span class="org-rainbow-delimiters-depth-1">[</span>f<span class="org-rainbow-delimiters-depth-1">]</span> v <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>map <span class="org-haskell-operator">$</span> flip evalAd v<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">$</span> jacobian f
+<span class="org-haskell-definition">pipeline</span> <span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-haskell-constructor">:</span>fs<span class="org-rainbow-delimiters-depth-1">)</span> gv <span class="org-haskell-operator">=</span> matMatMul rest jf
+  <span class="org-haskell-keyword">where</span> rest <span class="org-haskell-operator">=</span> pipeline fs <span class="org-haskell-operator">$</span> map <span class="org-rainbow-delimiters-depth-1">(</span>flip evalAd gv<span class="org-rainbow-delimiters-depth-1">)</span> f
+        jf <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>map <span class="org-haskell-operator">$</span> flip evalAd gv<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">$</span> jacobian f
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org707ea62" class="outline-2">
+<h2 id="org707ea62">Conclusion</h2>
+<div class="outline-text-2" id="text-org707ea62">
+<p>
+In this blog post, I've described what I hope to achieve over the summer, and provided a proof-of-concept implementation for the combinatory AD method.
+In future blog posts, I will tackle additional related topics, including the following.
+</p>
+<ul class="org-ul">
+<li>Optimization/avoiding expression swell</li>
+<li>Integration with <code>accelerate</code></li>
+<li>Dealing with variables</li>
+<li>Benchmarks</li>
+<li>Integration with linear algebra primitives</li>
+</ul>
+</div>
+</div>

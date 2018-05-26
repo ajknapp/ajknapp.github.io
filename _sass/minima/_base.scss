@@ -1,0 +1,395 @@
+
+@font-face {
+    font-family: "StixTwoWeb";
+    src: url("/assets/fonts/WOFF/STIX2Text-Regular.woff") format('woff'),
+    url("/assets/fonts/WOFF2/STIX2Text-Regular.woff2") format('woff2');
+}
+
+@font-face {
+    font-family: "StixTwoWeb";
+    src: url("/assets/fonts/WOFF/STIX2Text-Bold.woff") format('woff'),
+    url("/assets/fonts/WOFF2/STIX2Text-Bold.woff2") format('woff2');
+    font-weight: bold;
+}
+
+@font-face {
+    font-family: "StixTwoWeb";
+    src: url("/assets/fonts/WOFF/STIX2Text-BoldItalic.woff") format('woff'),
+    url("/assets/fonts/WOFF2/STIX2Text-BoldItalic.woff2") format('woff2');
+    font-weight: bold;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: "StixTwoWeb";
+    src: url("/assets/fonts/WOFF/STIX2Text-Italic.woff") format('woff'),
+    url("/assets/fonts/WOFF2/STIX2Text-Italic.woff2") format('woff2');
+    font-style: italic;
+}
+
+@font-face {
+    font-family: "StixTwoMathWeb";
+    src: url("/assets/fonts/WOFF/STIX2Math.woff") format('woff'),
+    url("/assets/fonts/WOFF2/STIX2Math.woff2") format('woff2');
+}
+
+/**
+ * Reset some basic elements
+ */
+body, h1, h2, h3, h4, h5, h6,
+p, blockquote, pre, hr,
+dl, dd, ol, ul, figure {
+  margin: 0;
+  padding: 0;
+}
+
+
+
+/**
+ * Basic styling
+ */
+body {
+  font: $base-font-weight #{$base-font-size}/#{$base-line-height} $base-font-family;
+  color: $text-color;
+  background-color: $background-color;
+  background-image: url("/assets/img/light-sketch.png");
+  /* This is mostly intended for prototyping; please download the pattern and re-host for production environments. Thank you! */
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-feature-settings: "kern" 1;
+     -moz-font-feature-settings: "kern" 1;
+       -o-font-feature-settings: "kern" 1;
+          font-feature-settings: "kern" 1;
+  font-kerning: normal;
+  text-align: justify;
+  text-justify: inter-character;
+  -webkit-hyphens: auto;
+  -moz-hyphens: auto;
+  -ms-hyphens: auto;
+  hyphens: auto;
+  counter-reset: section subsection theorem;
+}
+
+
+
+/**
+ * Set `margin-bottom` to maintain vertical rhythm
+ */
+h1, h2, h3, h4, h5, h6,
+p, blockquote, pre,
+ul, ol, dl, figure,
+%vertical-rhythm {
+  margin-bottom: $spacing-unit / 2;
+}
+
+
+
+/**
+ * Images
+ */
+img {
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+
+
+/**
+ * Figures
+ */
+figure > img {
+  display: block;
+}
+
+figcaption {
+  font-size: $small-font-size;
+}
+
+
+
+/**
+ * Lists
+ */
+ul, ol {
+  margin-left: $spacing-unit;
+}
+
+li {
+  > ul,
+  > ol {
+    margin-bottom: 0;
+  }
+}
+
+
+
+/**
+ * Headings
+ */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: $base-font-weight;
+}
+
+h2:before {
+    counter-increment: section;
+    content: counter(section, upper-roman) ". ";
+}
+
+h3:before {
+    counter-increment: subsection;
+    content: counter(subsection, lower-roman) ". ";
+}
+
+footer h2:before, .post-list-heading:before,
+.post-list li h3::before {
+    content: "";
+}
+
+.post-list-heading {
+    padding-top: 10px;
+}
+
+.footer-heading {
+    text-align: center;
+}
+
+h2, h3 {
+    /* counter-reset: theorem; */
+}
+
+/**
+ * Links
+ */
+a {
+  color: $brand-color;
+  text-decoration: none;
+
+  &:visited {
+    color: darken($brand-color, 15%);
+  }
+
+  &:hover {
+    color: $text-color;
+    text-decoration: underline;
+  }
+
+  .social-media-list &:hover {
+    text-decoration: none;
+
+    .username {
+      text-decoration: underline;
+    }
+  }
+}
+
+
+/**
+ * Blockquotes
+ */
+blockquote {
+  color: #dcdccc;
+  border-left: 4px solid $grey-color-light;
+  padding-left: $spacing-unit / 2;
+  @include relative-font-size(1.125);
+  letter-spacing: -1px;
+  font-style: italic;
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+}
+
+
+
+/**
+ * Code formatting
+ */
+pre,
+code {
+    @include relative-font-size(0.8375);
+    // background-color: #eef;
+    background-color: rgba(63, 63, 63, 0.4);
+    font-family: "Droid Sans Mono", "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Droid Sans Mono", "Courier New", Courier, monospace;
+}
+
+code {
+  padding: 1px 5px;
+  border: 1px solid $grey-color-light;
+  border-radius: 3px;
+}
+
+pre {
+  padding: 8px 12px;
+  overflow-x: auto;
+  font-size: 13px;
+  border-radius: 7px;
+
+  > code {
+    border: 0;
+    padding-right: 0;
+    padding-left: 0;
+  }
+}
+
+
+
+/**
+ * Wrapper
+ */
+.wrapper {
+  max-width: -webkit-calc(#{$content-width} - (#{$spacing-unit} * 2));
+  max-width:         calc(#{$content-width} - (#{$spacing-unit} * 2));
+  margin-right: auto;
+  margin-left: auto;
+  padding-right: $spacing-unit;
+  padding-left: $spacing-unit;
+  background-color: rgba(63, 63, 63, 0.4);
+  @extend %clearfix;
+
+  @include media-query($on-laptop) {
+    max-width: -webkit-calc(#{$content-width} - (#{$spacing-unit}));
+    max-width:         calc(#{$content-width} - (#{$spacing-unit}));
+    padding-right: $spacing-unit / 2;
+    padding-left: $spacing-unit / 2;
+  }
+}
+
+header .wrapper {
+    border-radius: 0px 0px 24px 24px;
+}
+
+main .wrapper {
+    border-radius: 24px;
+}
+
+footer .wrapper {
+    border-radius: 24px;
+}
+
+/**
+ * Clearfix
+ */
+%clearfix:after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+
+
+/**
+ * Icons
+ */
+
+.svg-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-block;
+    fill: #{$text-color};
+    padding-right: 5px;
+    vertical-align: text-top;
+}
+
+.social-media-list {
+  li + li {
+    padding-top: 5px;
+  }
+}
+
+
+
+/**
+ * Tables
+ */
+table {
+  margin-bottom: $spacing-unit;
+  width: 100%;
+  text-align: $table-text-align;
+  color: lighten($text-color, 18%);
+  border-collapse: collapse;
+  border: 1px solid $grey-color-light;
+  tr {
+    &:nth-child(even) {
+      background-color: lighten($grey-color-light, 6%);
+    }
+  }
+  th, td {
+    padding: ($spacing-unit / 3) ($spacing-unit / 2);
+  }
+  th {
+    background-color: lighten($grey-color-light, 3%);
+    border: 1px solid darken($grey-color-light, 4%);
+    border-bottom-color: darken($grey-color-light, 12%);
+  }
+  td {
+    border: 1px solid $grey-color-light;
+  }
+}
+
+/**
+ * Math
+ */
+math {
+    font-family: "STIX Two Math";
+}
+
+.proof::after {
+    float: right;
+    line-height: 0.0;
+    content: "☐";
+    /* content: "QED. "; */
+}
+
+.proof, .theorem, .lemma, .proposition, .corollary,
+.proofx, .theoremx, .lemmax, .propositionx, .corollaryx {
+    background-color: rgba(63, 63, 63, 0.4);
+    margin-top: $spacing-unit;
+    margin-bottom: $spacing-unit;
+    padding: $spacing-unit / 2;
+    padding-bottom: $spacing-unit / 8;
+    border-radius: 8px;
+}
+
+.proof {
+    padding-bottom: $spacing-unit * 0.75;
+}
+
+.proof::before, .theorem::before, .lemma::before, .proposition::before, .corollary::before,
+.proofx::before, .theoremx::before, .lemmax::before, .propositionx::before, .corollaryx::before {
+    font-weight: bold;
+}
+
+.proof::before { content: "Proof "; }
+
+.theorem::before {
+    content: "Theorem " counter(theorem);
+    counter-increment: theorem;
+}
+
+.lemma::before {
+    content: "Lemma " counter(theorem);
+    counter-increment: theorem;
+}
+
+.proposition::before {
+    content: "Proposition " counter(theorem);
+    counter-increment: theorem;
+}
+
+.corollary::before {
+    content: "Corollary " counter(theorem);
+    counter-increment: theorem;
+}
+
+.theoremx::before { content: "Theorem"; }
+.lemmax::before { content: "Lemma"; }
+.propositionx::before { content: "Proposition"; }
+.corollaryx::before { content: "Corollary"; }
+
+/**
+ * Article
+ */
+article {
+    padding-top: $spacing-unit;
+    padding-right: $spacing-unit*1.25;
+    padding-left: $spacing-unit*1.25;
+}
