@@ -42,7 +42,7 @@ Suppose we have written our program $f$ as a long series of function composition
 f = f_k \circ f_{k-1} \circ \cdots \circ f_2 \circ f_1
 \]
 We can always do this with pure functional code, even if the result is extremely hard to understand.
-The Jacobian accumulation problem can then be understood as asking us to choose the operation-count-optimal parenthetical association of functions to which we will apply the chain rule.
+The Jacobian accumulation problem can then be understood as asking us to choose the parenthetical association of functions which is operation-count-optimal after the chain rule is applied.
 (Since function composition is associative, all associations will all give the same answer, but some will be faster than others.)
 As special cases, we have forward mode AD \[
 f = f_k \circ (f_{k-1} \circ (\cdots \circ (f_2 \circ f_1) \cdots))
