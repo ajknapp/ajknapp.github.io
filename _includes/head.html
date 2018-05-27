@@ -10,6 +10,9 @@
   {%- endif -%}
   <script type="text/x-mathjax-config">
    MathJax.Hub.Config({
+       "TeX": {
+           extensions: ["AMSsymbols.js"],
+       },
        "HTML-CSS" : {
            availableFonts : ["Neo-Euler"],
            preferredFont : "Neo-Euler",
@@ -19,10 +22,10 @@
            /* preferredFont : "Gyre-Pagella",*/
            /* webFont : "Gyre-Pagella-Web",*/
 
-           /* availableFonts : ["STIX"],
-            * preferredFont : "STIX",
-            * webFont : "STIX-Web",
-            */
+           /* availableFonts : ["STIX"],*/
+           /* preferredFont : "STIX",*/
+           /* webFont : "STIX-Web",*/
+
            imageFont : null,
            scale: 95,
        }
