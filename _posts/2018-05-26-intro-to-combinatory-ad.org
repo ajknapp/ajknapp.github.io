@@ -29,7 +29,7 @@ They refer to the method as "combinatory automatic differentiation", although I 
 There's a lot more to say about the method, but I'll stick to a high-level overview here.
 
 First, some notation: denote function composition by $\circ$, and composition of linear maps by $\bullet$.
-Recall that the [[https://en.wikipedia.org/wiki/Fr%C3%A9chet_derivative][Frechet derivative]] (a generalization of the usual derivative to Banach spaces that spits out the Jacobian when applied to $f: \mathbb{R}^m \to \mathbb{R}^n$) is a linear map, and therefore we can write the chain rule like so: \[
+The [[https://en.wikipedia.org/wiki/Fr%C3%A9chet_derivative][Frechet derivative]] (a generalization of the usual derivative to maps between Banach spaces, which spits out the Jacobian when applied to $f: \mathbb{R}^m \to \mathbb{R}^n$) is a linear map, and therefore we can write the chain rule like so: \[
 (f \circ g)'(x) = f'(g(x)) \bullet g'(x)
 \]
 In the finite dimensional case, $\bullet$ is matrix multiplication, which has two key attributes.
