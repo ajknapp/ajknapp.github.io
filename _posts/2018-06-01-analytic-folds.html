@@ -1,0 +1,200 @@
+---
+layout: post
+title: Analytic Differentiation of Folds
+excerpt: Analytic of differentiation of left folds in Haskell.
+---
+
+<div id="outline-container-orge300aa3" class="outline-2">
+<h2 id="orge300aa3">Introduction</h2>
+<div class="outline-text-2" id="text-orge300aa3">
+<p>
+The <code>accelerate</code> library is a high-level interface to GPU programming, implemented as a DSL in Haskell.
+Internally, <code>accelerate</code> programs get compiled from a high-level AST to a lower-level one.
+While this is convenient from a compiler author's perspective, it is a bit challenging from the perspective of automatic differentiation, since it is no longer possible to implement AD at the operation-by-operation scale as it is in most libraries.
+This means that any AD library for <code>accelerate</code> will have to be able to differentiate <a href="https://github.com/AccelerateHS/accelerate/blob/master/src/Data/Array/Accelerate/AST.hs#L386">folds</a>, among other things, as a concept, and not as functions built out of simpler operations.
+</p>
+
+<p>
+In this blog post, I will use <code>sage</code> to derive an "analytic" formula for the derivative of a fold, which expresses the derivative of a fold in terms of existing functional combinators like <code>map</code>, <code>scan</code>, and <code>zipWith</code>, as well as the chain rule.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd77d6ed" class="outline-2">
+<h2 id="orgd77d6ed">Computation</h2>
+<div class="outline-text-2" id="text-orgd77d6ed">
+<p>
+Let's get started!
+</p>
+
+<p>
+First, we'll introduce some symbolic variables and functions.
+</p>
+<div class="org-src-container">
+<pre class="src src-sage">var<span class="org-rainbow-delimiters-depth-1">(</span><span class="org-string">'u,v,w,x,y,z'</span><span class="org-rainbow-delimiters-depth-1">)</span>
+function<span class="org-rainbow-delimiters-depth-1">(</span><span class="org-string">'f'</span><span class="org-rainbow-delimiters-depth-1">)(</span>u,v<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+Next, we'll compute the Jacobian of a left fold to see if we can find any patterns.
+We'll compute the symbolic Jacobian of the following Haskell code.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">foldl1</span> f <span class="org-rainbow-delimiters-depth-1">[</span>u,v,w,x,y,z<span class="org-rainbow-delimiters-depth-1">]</span>
+</pre>
+</div>
+<p>
+The symbolic result is a mess, but it does have some structure we can pick apart.
+</p>
+<div class="org-src-container">
+<pre class="src src-sage">jacobian<span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-rainbow-delimiters-depth-2">(</span>f<span class="org-rainbow-delimiters-depth-3">(</span>f<span class="org-rainbow-delimiters-depth-4">(</span>f<span class="org-rainbow-delimiters-depth-5">(</span>f<span class="org-rainbow-delimiters-depth-6">(</span>u,v<span class="org-rainbow-delimiters-depth-6">)</span>,w<span class="org-rainbow-delimiters-depth-5">)</span>,x<span class="org-rainbow-delimiters-depth-4">)</span>,y<span class="org-rainbow-delimiters-depth-3">)</span>,z<span class="org-rainbow-delimiters-depth-2">)</span>,<span class="org-rainbow-delimiters-depth-2">(</span>u,v,w,x,y,z<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>.<span class="org-builtin">list</span><span class="org-rainbow-delimiters-depth-1">()</span>
+</pre>
+</div>
+
+<pre class="example">
+[diff(f(u, v), u)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ diff(f(u, v), v)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(f(f(f(u, v), w), x), y), z)]
+
+</pre>
+
+<p>
+Looking at the structure of the symbolic Jacobian, a few things stand out.
+</p>
+<ul class="org-ul">
+<li>We can replace the original <code>fold</code> with a <code>scan</code>, since the Jacobian requires all the intermediate steps.</li>
+<li>The <code>D[1](f)</code> structure at the beginning of each line has an obvious pattern, which we can capture with a <code>zipWith</code>. The <code>D[0](f)</code> structure that forms the rest of the computation looks like a <code>scan</code> of some sort.</li>
+<li>With a little more juggling, we should be able to express the Jacobian in terms of some combinators.</li>
+</ul>
+
+<p>
+Let's figure out exactly what's going on.
+We'll define some Sage versions of the combinators we'll need.
+</p>
+<div class="org-src-container">
+<pre class="src src-sage"><span class="org-keyword">def</span> <span class="org-function-name">zipWith</span><span class="org-rainbow-delimiters-depth-1">(</span>f,xs,ys<span class="org-rainbow-delimiters-depth-1">)</span>:
+    <span class="org-keyword">return</span> <span class="org-rainbow-delimiters-depth-1">[</span>f<span class="org-rainbow-delimiters-depth-2">(</span>x,y<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-keyword">for</span> x,y <span class="org-keyword">in</span> <span class="org-builtin">zip</span><span class="org-rainbow-delimiters-depth-2">(</span>xs,ys<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">]</span>
+
+<span class="org-keyword">def</span> <span class="org-function-name">scanl</span><span class="org-rainbow-delimiters-depth-1">(</span>f, x0, xs<span class="org-rainbow-delimiters-depth-1">)</span>:
+    <span class="org-variable-name">res</span> = <span class="org-rainbow-delimiters-depth-1">[</span>x0<span class="org-rainbow-delimiters-depth-1">]</span>+xs
+    <span class="org-keyword">for</span> i <span class="org-keyword">in</span> <span class="org-builtin">range</span><span class="org-rainbow-delimiters-depth-1">(</span><span class="org-builtin">len</span><span class="org-rainbow-delimiters-depth-2">(</span>xs<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>:
+        <span class="org-variable-name">res</span><span class="org-rainbow-delimiters-depth-1">[</span>i+<span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span> = f<span class="org-rainbow-delimiters-depth-1">(</span>res<span class="org-rainbow-delimiters-depth-2">[</span>i<span class="org-rainbow-delimiters-depth-2">]</span>, xs<span class="org-rainbow-delimiters-depth-2">[</span>i<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">)</span>
+    <span class="org-keyword">return</span> res
+
+<span class="org-keyword">def</span> <span class="org-function-name">scanl1</span><span class="org-rainbow-delimiters-depth-1">(</span>f, xs<span class="org-rainbow-delimiters-depth-1">)</span>:
+    <span class="org-keyword">return</span> scanl<span class="org-rainbow-delimiters-depth-1">(</span>f, xs<span class="org-rainbow-delimiters-depth-2">[</span><span class="org-highlight-numbers-number">0</span><span class="org-rainbow-delimiters-depth-2">]</span>, xs<span class="org-rainbow-delimiters-depth-2">[</span><span class="org-highlight-numbers-number">1</span>:<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+Next, let's define some basic terms on which we'll operate.
+</p>
+<ul class="org-ul">
+<li><code>f0</code> and <code>f1</code> are the partial derivatives of <code>f</code></li>
+<li><code>lst</code> is the list of variables we are folding over</li>
+<li><code>fs</code> is a scan over the input, using our function <code>f</code></li>
+</ul>
+<div class="org-src-container">
+<pre class="src src-sage"><span class="org-variable-name">f0</span> = diff<span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-rainbow-delimiters-depth-2">(</span>u,v<span class="org-rainbow-delimiters-depth-2">)</span>,u<span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-variable-name">f1</span> = diff<span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-rainbow-delimiters-depth-2">(</span>u,v<span class="org-rainbow-delimiters-depth-2">)</span>,v<span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-variable-name">lst</span> = <span class="org-rainbow-delimiters-depth-1">[</span>u,v,w,x,y,z<span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-variable-name">fs</span> = scanl1<span class="org-rainbow-delimiters-depth-1">(</span>f, lst<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+We can now take care of the second item on our list of observations.
+</p>
+<div class="org-src-container">
+<pre class="src src-sage"><span class="org-variable-name">term1</span> = <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>+zipWith<span class="org-rainbow-delimiters-depth-1">(</span>f1, fs, lst<span class="org-rainbow-delimiters-depth-2">[</span><span class="org-highlight-numbers-number">1</span>:<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">)</span>
+term1
+</pre>
+</div>
+
+<pre class="example">
+[1,
+ diff(f(u, v), v),
+ D[1](f)(f(u, v), w),
+ D[1](f)(f(f(u, v), w), x),
+ D[1](f)(f(f(f(u, v), w), x), y),
+ D[1](f)(f(f(f(f(u, v), w), x), y), z)]
+
+</pre>
+
+<p>
+Let's push on ahead and compute the last structural component we noticed.
+(Protip: <code>[::-1]</code> is a Python idiom for reversing a list.)
+</p>
+<div class="org-src-container">
+<pre class="src src-sage"><span class="org-variable-name">term2</span> = scanl1<span class="org-rainbow-delimiters-depth-1">(</span><span class="org-keyword">lambda</span> x,y:x*y, zipWith<span class="org-rainbow-delimiters-depth-2">(</span>f0, fs, lst<span class="org-rainbow-delimiters-depth-3">[</span><span class="org-highlight-numbers-number">1</span>:<span class="org-rainbow-delimiters-depth-3">]</span><span class="org-rainbow-delimiters-depth-2">)[</span>::-<span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">)[</span>::-<span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>+<span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>
+term2
+</pre>
+</div>
+
+<pre class="example">
+[diff(f(u, v), u)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ 1]
+
+</pre>
+
+<p>
+Finally, we can obtain the symbolic Jacobian we computed directly.
+</p>
+<div class="org-src-container">
+<pre class="src src-sage">zipWith<span class="org-rainbow-delimiters-depth-1">(</span><span class="org-keyword">lambda</span> x,y:x*y,term1,term2<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<pre class="example">
+[diff(f(u, v), u)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ diff(f(u, v), v)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+ D[1](f)(f(f(f(f(u, v), w), x), y), z)]
+
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org313c66e" class="outline-2">
+<h2 id="org313c66e">Conclusion</h2>
+<div class="outline-text-2" id="text-org313c66e">
+<p>
+<code>accelerate</code> has a few more primitives that will require similar treatment, including scans and segmented folds, as well as a few more fold variants.
+However, I'm optimistic all of these can be tackled with a similar approach.
+The results obtained here can be summarized like so.
+</p>
+<div class="org-src-container">
+<pre class="src src-sage"><span class="org-keyword">def</span> <span class="org-function-name">autodiff_foldl1</span><span class="org-rainbow-delimiters-depth-1">(</span>f, lst<span class="org-rainbow-delimiters-depth-1">)</span>:
+    <span class="org-variable-name">fs</span> = scanl1<span class="org-rainbow-delimiters-depth-1">(</span>f,lst<span class="org-rainbow-delimiters-depth-1">)</span>
+    <span class="org-variable-name">f0</span> = diff<span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-rainbow-delimiters-depth-2">(</span>u,v<span class="org-rainbow-delimiters-depth-2">)</span>,u<span class="org-rainbow-delimiters-depth-1">)</span>         <span class="org-comment-delimiter"># </span><span class="org-comment">first partial (as a function)</span>
+    <span class="org-variable-name">f1</span> = diff<span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-rainbow-delimiters-depth-2">(</span>u,v<span class="org-rainbow-delimiters-depth-2">)</span>,v<span class="org-rainbow-delimiters-depth-1">)</span>         <span class="org-comment-delimiter"># </span><span class="org-comment">second partial (as a function)</span>
+    <span class="org-variable-name">prod</span> = <span class="org-keyword">lambda</span> x,y: x*y
+    <span class="org-variable-name">term1</span> = <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>+zipWith<span class="org-rainbow-delimiters-depth-1">(</span>f1, fs, lst<span class="org-rainbow-delimiters-depth-2">[</span><span class="org-highlight-numbers-number">1</span>:<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">)</span>
+    <span class="org-variable-name">term2</span> = scanl1<span class="org-rainbow-delimiters-depth-1">(</span>prod, zipWith<span class="org-rainbow-delimiters-depth-2">(</span>f0, fs, lst<span class="org-rainbow-delimiters-depth-3">[</span><span class="org-highlight-numbers-number">1</span>:<span class="org-rainbow-delimiters-depth-3">]</span><span class="org-rainbow-delimiters-depth-2">)[</span>::-<span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">)[</span>::-<span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>+<span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>
+    <span class="org-keyword">return</span> zipWith<span class="org-rainbow-delimiters-depth-1">(</span>prod, term1, term2<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+The technique even works with the edge case of a two-variable vector.
+</p>
+<div class="org-src-container">
+<pre class="src src-sage">autodiff_foldl1<span class="org-rainbow-delimiters-depth-1">(</span>f, <span class="org-rainbow-delimiters-depth-2">[</span>u,v<span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<pre class="example">
+[diff(f(u, v), u), diff(f(u, v), v)]
+
+</pre>
+</div>
+</div>
