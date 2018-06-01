@@ -1,0 +1,152 @@
+#+STARTUP: showall indent
+#+BEGIN_EXPORT html
+---
+layout: post
+title: Analytic Differentiation of Folds
+excerpt: Analytic of differentiation of left folds in Haskell.
+---
+#+END_EXPORT
+
+* Introduction
+
+The =accelerate= library is a high-level interface to GPU programming, implemented as a DSL in Haskell.
+Internally, =accelerate= programs get compiled from a high-level AST to a lower-level one.
+While this is convenient from a compiler author's perspective, it is a bit challenging from the perspective of automatic differentiation, since it is no longer possible to implement AD at the operation-by-operation scale as it is in most libraries.
+This means that any AD library for =accelerate= will have to be able to differentiate [[https://github.com/AccelerateHS/accelerate/blob/master/src/Data/Array/Accelerate/AST.hs#L386][folds]], among other things, as a concept, and not as functions built out of simpler operations.
+
+In this blog post, I will use =sage= to derive an "analytic" formula for the derivative of a fold, which expresses the derivative of a fold in terms of existing functional combinators like =map=, =scan=, and =zipWith=, as well as the chain rule.
+
+* Computation
+
+Let's get started!
+
+First, we'll introduce some symbolic variables and functions.
+#+BEGIN_SRC sage :session main
+var('u,v,w,x,y,z')
+function('f')(u,v)
+#+END_SRC
+
+#+RESULTS:
+
+Next, we'll compute the Jacobian of a left fold to see if we can find any patterns.
+We'll compute the symbolic Jacobian of the following Haskell code.
+#+BEGIN_SRC haskell
+foldl1 f [u,v,w,x,y,z]
+#+END_SRC
+The symbolic result is a mess, but it does have some structure we can pick apart.
+#+BEGIN_SRC sage :session main
+jacobian(f(f(f(f(f(u,v),w),x),y),z),(u,v,w,x,y,z)).list()
+#+END_SRC
+
+#+RESULTS:
+: [diff(f(u, v), u)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  diff(f(u, v), v)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(f(f(f(u, v), w), x), y), z)]
+
+Looking at the structure of the symbolic Jacobian, a few things stand out.
+- We can replace the original =fold= with a =scan=, since the Jacobian requires all the intermediate steps.
+- The =D[1](f)= structure at the beginning of each line has an obvious pattern, which we can capture with a =zipWith=. The =D[0](f)= structure that forms the rest of the computation looks like a =scan= of some sort.
+- With a little more juggling, we should be able to express the Jacobian in terms of some combinators.
+
+Let's figure out exactly what's going on.
+We'll define some Sage versions of the combinators we'll need.
+#+BEGIN_SRC sage :session main
+def zipWith(f,xs,ys):
+    return [f(x,y) for x,y in zip(xs,ys)]
+
+def scanl(f, x0, xs):
+    res = [x0]+xs
+    for i in range(len(xs)):
+        res[i+1] = f(res[i], xs[i])
+    return res
+
+def scanl1(f, xs):
+    return scanl(f, xs[0], xs[1:])
+#+END_SRC
+
+#+RESULTS:
+
+Next, let's define some basic terms on which we'll operate.
+- =f0= and =f1= are the partial derivatives of =f=
+- =lst= is the list of variables we are folding over
+- =fs= is a scan over the input, using our function =f=
+#+BEGIN_SRC sage :session main
+f0 = diff(f(u,v),u)
+f1 = diff(f(u,v),v)
+lst = [u,v,w,x,y,z]
+fs = scanl1(f, lst)
+#+END_SRC
+We can now take care of the second item on our list of observations.
+#+BEGIN_SRC sage :session main
+term1 = [1]+zipWith(f1, fs, lst[1:])
+term1
+#+END_SRC
+
+#+RESULTS:
+: [1,
+:  diff(f(u, v), v),
+:  D[1](f)(f(u, v), w),
+:  D[1](f)(f(f(u, v), w), x),
+:  D[1](f)(f(f(f(u, v), w), x), y),
+:  D[1](f)(f(f(f(f(u, v), w), x), y), z)]
+
+Let's push on ahead and compute the last structural component we noticed.
+(Protip: =[::-1]= is a Python idiom for reversing a list.)
+#+BEGIN_SRC sage :session main
+term2 = scanl1(lambda x,y:x*y, zipWith(f0, fs, lst[1:])[::-1])[::-1]+[1]
+term2
+#+END_SRC
+
+#+RESULTS:
+: [diff(f(u, v), u)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  1]
+
+Finally, we can obtain the symbolic Jacobian we computed directly.
+#+BEGIN_SRC sage :session main
+zipWith(lambda x,y:x*y,term1,term2)
+#+END_SRC
+
+#+RESULTS:
+: [diff(f(u, v), u)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  diff(f(u, v), v)*D[0](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(u, v), w)*D[0](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(f(u, v), w), x)*D[0](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(f(f(u, v), w), x), y)*D[0](f)(f(f(f(f(u, v), w), x), y), z),
+:  D[1](f)(f(f(f(f(u, v), w), x), y), z)]
+
+* Conclusion
+
+=accelerate= has a few more primitives that will require similar treatment, including scans and segmented folds, as well as a few more fold variants.
+However, I'm optimistic all of these can be tackled with a similar approach.
+The results obtained here can be summarized like so.
+#+BEGIN_SRC sage :session main
+  def autodiff_foldl1(f, lst):
+      fs = scanl1(f,lst)
+      f0 = diff(f(u,v),u)         # first partial (as a function)
+      f1 = diff(f(u,v),v)         # second partial (as a function)
+      prod = lambda x,y: x*y
+      term1 = [1]+zipWith(f1, fs, lst[1:])
+      term2 = scanl1(prod, zipWith(f0, fs, lst[1:])[::-1])[::-1]+[1]
+      return zipWith(prod, term1, term2)
+#+END_SRC
+
+#+RESULTS:
+
+The technique even works with the edge case of a two-variable vector.
+#+BEGIN_SRC sage :session main
+autodiff_foldl1(f, [u,v])
+#+END_SRC
+
+#+RESULTS:
+: [diff(f(u, v), u), diff(f(u, v), v)]
+
+# Local Variables:
+# org-export-babel-evaluate: nil
+# End:
