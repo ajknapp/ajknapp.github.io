@@ -1,0 +1,346 @@
+---
+layout: post
+title: "Not-o-matic Differentiation"
+excerpt: Summary of my experience working on a Haskell GSoC project.
+---
+
+<p>
+This summer, I worked on a Google Summer of Code <a href="https://github.com/ajknapp/accelerate-ad">project</a> intended to implement automatic differentiation for Haskell's <code>accelerate</code> vector programming EDSL, using a new method of automatic differentiation.
+To make a long story short, the differentiation part worked out even better than I hoped, but the automatic part didn't for a variety of reasons which I will detail in this post.
+</p>
+
+<p>
+Let's start with the good stuff, however.
+The paper for the method that I was using is still unfinished, so I can't say for sure, but I believe I worked out the punchline (with the help of a similar <a href="https://arxiv.org/abs/1804.00746">paper</a> by Conal Elliott): in a purely functional setting, the following combinators are all the infrastructure you need to support vectorized, parallel AD capable of arbitrary mixed-mode computation.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">scale</span> a <span class="org-haskell-operator">=</span> <span class="org-haskell-operator">\</span>da <span class="org-haskell-operator">-&gt;</span> a<span class="org-haskell-operator">*</span>da
+<span class="org-haskell-definition">compForward</span> x <span class="org-haskell-operator">=</span> <span class="org-rainbow-delimiters-depth-1">(</span>matrixMultiply x <span class="org-haskell-operator">.</span><span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">compReverse</span> x <span class="org-haskell-operator">=</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">.</span> flip matrixMultiply x<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+(Of course, you need derivative information for primitives as well.)
+</p>
+
+<div id="outline-container-orgd293c17" class="outline-2">
+<h2 id="orgd293c17">Differentiation&#x2026;</h2>
+<div class="outline-text-2" id="text-orgd293c17">
+<p>
+How does this work?
+Let's start with forward-mode AD for scalar expressions.
+The usual way to do forward-mode AD is with dual numbers:
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">D</span> a <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">D</span> a a
+
+<span class="org-haskell-keyword">instance</span> <span class="org-haskell-type">Num</span> a <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">Num</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">D</span> a a<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">where</span>
+  <span class="org-haskell-constructor">D</span> f f' <span class="org-haskell-operator">+</span> <span class="org-haskell-constructor">D</span> g g' <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">D</span> <span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-haskell-operator">+</span>g<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>f'<span class="org-haskell-operator">+</span>g'<span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-haskell-constructor">D</span> f f' <span class="org-haskell-operator">*</span> <span class="org-haskell-constructor">D</span> g g' <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">D</span> <span class="org-rainbow-delimiters-depth-1">(</span>f<span class="org-haskell-operator">*</span>g<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>f'<span class="org-haskell-operator">*</span>g <span class="org-haskell-operator">+</span> f<span class="org-haskell-operator">*</span>g'<span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-comment-delimiter">-- </span><span class="org-comment">etc.</span>
+</pre>
+</div>
+<p>
+Instead of keeping track of the derivative via a number, we can keep track of it with a function (in mathematical terms, we've moved from the usual derivative to the Frechet derivative.)
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-comment-delimiter">-- </span><span class="org-comment">(-+&gt;) is a linear function</span>
+<span class="org-haskell-keyword">type</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">-+&gt;</span><span class="org-rainbow-delimiters-depth-1">)</span> a b <span class="org-haskell-operator">=</span> a <span class="org-haskell-operator">-&gt;</span> b
+<span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">D</span> a b <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">D</span> <span class="org-rainbow-delimiters-depth-1">(</span>a <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span>a, a <span class="org-haskell-operator">-+&gt;</span> b<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+In this setting, the automatically differentiated version of <code>square x = x*x</code> would be <code>square = D (\x -&gt; (x*x, scale (2*x)))</code>.
+We can also share work between the function and its derivative.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">exp</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">D</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span>x <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">let</span> y <span class="org-haskell-operator">=</span> exp x <span class="org-haskell-keyword">in</span> <span class="org-rainbow-delimiters-depth-2">(</span>y, scale y<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+We can compose <code>D</code> types with their <code>Category</code> instance (exercise for the reader.)
+Once we're done composing them, we can get a numerical answer in a straightforward way.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">withDerivative</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">D</span> f<span class="org-rainbow-delimiters-depth-1">)</span> x <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">let</span> <span class="org-rainbow-delimiters-depth-1">(</span>y, f'<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> f x <span class="org-haskell-keyword">in</span> <span class="org-rainbow-delimiters-depth-1">(</span>y, f' <span class="org-highlight-numbers-number">1.0</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+We can now extend this trick to vector-valued functions by replacing <code>scale x</code> with <code>matrixMultiply x</code>, but there's an added complication, which is the impact of the association of matrix products on performance.
+Suppose we have some Jacobians already computed in a staged or lazy way
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-comment-delimiter">-- </span><span class="org-comment">evaluated at x</span>
+<span class="org-haskell-definition">f'</span> <span class="org-haskell-operator">=</span> A.use <span class="org-haskell-operator">$</span> A.fromList <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">A.Z</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">2</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">10</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Double</span> <span class="org-haskell-operator">..</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-comment-delimiter">-- </span><span class="org-comment">evaluated at f(x)</span>
+<span class="org-haskell-definition">g'</span> <span class="org-haskell-operator">=</span> A.use <span class="org-haskell-operator">$</span> A.fromList <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">A.Z</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">10</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">3</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Double</span> <span class="org-haskell-operator">..</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-comment-delimiter">-- </span><span class="org-comment">evaluated at g(f(x))</span>
+<span class="org-haskell-definition">h'</span> <span class="org-haskell-operator">=</span> A.use <span class="org-haskell-operator">$</span> A.fromList <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">A.Z</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">3</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">50</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Double</span> <span class="org-haskell-operator">..</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-comment-delimiter">-- </span><span class="org-comment">evaluated at h(g(f(x)))</span>
+<span class="org-haskell-definition">j'</span> <span class="org-haskell-operator">=</span> A.use <span class="org-haskell-operator">$</span> A.fromList <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">A.Z</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">50</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">80</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Double</span> <span class="org-haskell-operator">..</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-comment-delimiter">-- </span><span class="org-comment">evaluated at j(h(g(f(x))))</span>
+<span class="org-haskell-definition">k'</span> <span class="org-haskell-operator">=</span> A.use <span class="org-haskell-operator">$</span> A.fromList <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">A.Z</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">80</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-constructor">A.:.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">100</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Int</span><span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">::</span><span class="org-haskell-type">Double</span> <span class="org-haskell-operator">..</span><span class="org-rainbow-delimiters-depth-1">]</span>
+</pre>
+</div>
+<p>
+and we want to compute the Jacobian of \(f \circ g \circ h \circ j \circ k\).
+The chain rule tells us what the answer is: we just matrix-multiply everything.
+It doesn't tell us how to do it efficiently, however.
+If we have a lot of inputs and a few outputs, we should multiply from left to right (reverse mode); otherwise, going from right to left is a better choice (forward mode.)
+We can do this elegantly with the <code>compForward</code> and <code>compReverse</code> combinators.
+(Note the analogy between passing <code>id</code> in the matrix case and <code>1.0</code> in the scalar case from earlier, and which matrix gets passed as an argument.)
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell">&#955;<span class="org-haskell-definition">&gt;</span> run <span class="org-haskell-operator">$</span> <span class="org-rainbow-delimiters-depth-1">(</span>compForward f' 
+          <span class="org-haskell-operator">.</span> compForward g'
+          <span class="org-haskell-operator">.</span> compForward h'
+          <span class="org-haskell-operator">.</span> compForward j' <span class="org-haskell-operator">$</span> id<span class="org-rainbow-delimiters-depth-1">)</span> k'
+</pre>
+</div>
+<pre class="example">
+Matrix (Z :. 2 :. 100) [...]
+(4.70 secs, 8,707,288,416 bytes)
+
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-haskell">&#955;<span class="org-haskell-definition">&gt;</span> run <span class="org-haskell-operator">$</span> <span class="org-rainbow-delimiters-depth-1">(</span>compReverse g' 
+          <span class="org-haskell-operator">.</span> compReverse h'
+          <span class="org-haskell-operator">.</span> compReverse j'
+          <span class="org-haskell-operator">.</span> compReverse k' <span class="org-haskell-operator">$</span> id<span class="org-rainbow-delimiters-depth-1">)</span> f'
+</pre>
+</div>
+<pre class="example">
+Matrix (Z :. 2 :. 100) [...]
+(0.19 secs, 188,243,768 bytes)
+
+</pre>
+
+<p>
+It doesn't help in this case, but we can support mixed-mode computation easily: anytime you want to switch modes, just feed the comp train an <code>id</code> and start a new one.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell">&#955;<span class="org-haskell-definition">&gt;</span> run <span class="org-haskell-operator">$</span> <span class="org-rainbow-delimiters-depth-1">(</span>compForward f' <span class="org-haskell-operator">.</span> compForward g' <span class="org-haskell-operator">$</span> id<span class="org-rainbow-delimiters-depth-1">)</span>
+       <span class="org-haskell-operator">.</span> <span class="org-rainbow-delimiters-depth-1">(</span>compReverse j' <span class="org-haskell-operator">.</span> compReverse k' <span class="org-haskell-operator">$</span> id<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">$</span> h'
+</pre>
+</div>
+<pre class="example">
+Matrix (Z :. 2 :. 100) [...]
+(0.47 secs, 688,244,264 bytes)
+
+</pre>
+
+<p>
+That's the differentiation; all that's left is the automatic part.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org8dda0b3" class="outline-2">
+<h2 id="org8dda0b3">&#x2026; of the not-o-matic variety</h2>
+<div class="outline-text-2" id="text-org8dda0b3">
+<p>
+This was all very elegant, so why didn't I succeed in writing an AD library?
+It's possible to manually write a bunch of <code>D</code> combinators and write everything in a point-free style using <code>Category</code> instances, but that gets old fast.
+You can write half an <code>Arrow</code> instance for <code>D</code>, but <code>arr</code> is up to its usual dirty tricks: we can't differentiate an arbitrary Haskell function.
+For this reason, the implementation described in Conal Elliott's paper is intended to be used with his compiling to categories GHC plugin.
+</p>
+
+<p>
+Unfortunately, the compiling with categories implementation can't be extended to <code>accelerate</code> for two reasons, compiler plugin aside.
+Firstly, the way it deals with vectorization is totally incompatible with the way <code>accelerate</code> works - it relies on a matrix being a vector of vectors and a bunch of instances that <code>accelerate</code> can't support.
+But what really is a dealbreaker is the separate <code>Acc</code> and <code>Exp</code> types in <code>accelerate</code>.
+<code>compReverse</code> and <code>compForward</code> are replaced by a category instance in this setting, and you need two separate category instances <code>k</code> and <code>l</code> to generalize <code>Acc</code> and <code>Exp</code> functions, respectively.
+Say now you want to wrap the <code>accelerate</code> function <code>map :: (Exp a -&gt; Exp b) -&gt; Acc (Array a) -&gt; Acc (Array b)</code> into something like <code>mapC :: a `l` b -&gt; a `k` b</code>.
+If you try to write <code>map f . map g</code>, you're hit with ambiguous type errors, and you now have to manually thread <code>Proxy l</code> arguments everywhere.
+</p>
+
+<p>
+Since the whole point of automatic differentiation is to avoid threading derivatives around manually in a mechanical but easy to screw up way, our other choice is to transform <code>accelerate</code> syntax trees to thread AD state around.
+Unfortunately, <a href="http://www.acceleratehs.org/publications.html#type-safe-runtime-code-generation-accelerate-to-llvm">Trevor McDonell et al.</a> put a lot of effort and thought into making the <code>accelerate</code> compiler preserve types as a bug-squashing mechanism.
+They did an extremely good job of it - it is indeed extremely hard (perhaps impossible) to write code that changes the type of a function's <code>accelerate</code> syntax tree in a generic way.
+</p>
+
+<p>
+I'll walk through a few examples of things that are critical for AD that are either very hard or impossible in a generic way with <code>accelerate</code>.
+</p>
+</div>
+
+<div id="outline-container-orgf198159" class="outline-3">
+<h3 id="orgf198159">Type-changing function transformations</h3>
+<div class="outline-text-3" id="text-orgf198159">
+<p>
+The AST for <code>accelerate</code> array functions has two constructors: <code>Alam</code> and <code>Abody</code>.
+A function of two arguments would get translated to <code>Alam(Alam(Abody accelerateExpression))</code>, where <code>accelerateExpression</code> has type <code>OpenAcc aenv t</code> - basically an AST for expressions that keeps track of result type and the environment of array variables.
+Suppose we've written an optimization <code>f :: OpenAcc f t -&gt; OpenAcc f t</code>.
+We'd like to apply it to functions with arbitrarily many arguments, so we write the following.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">applyRewriteAcc</span> k <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Abody</span> b<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Abody</span> <span class="org-rainbow-delimiters-depth-1">(</span>k b<span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">applyRewriteAcc</span> k <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Alam</span> f<span class="org-rainbow-delimiters-depth-1">)</span>  <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Alam</span> <span class="org-rainbow-delimiters-depth-1">(</span>applyRewriteAcc k f<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+This gives a type error, and won't compile unless you give it this type signature and turn on <code>Rank2Types</code>.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">applyRewriteAcc</span>
+    <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-keyword">forall</span> aenv' t'<span class="org-haskell-operator">.</span> <span class="org-haskell-type">OpenAcc</span> aenv' t' <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">OpenAcc</span> aenv' t'<span class="org-rainbow-delimiters-depth-1">)</span>
+    <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">PreOpenAfun</span> <span class="org-haskell-type">OpenAcc</span> aenv t
+    <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">PreOpenAfun</span> <span class="org-haskell-type">OpenAcc</span> aenv t
+</pre>
+</div>
+<p>
+Great - you can now apply your optimization, and you know it's type preserving!
+Sadly, this won't work if you try to generalize the signature to something that leaves the environment alone but changes the type of the expression.
+Every change I tried to that type signature that would let you apply a general type-changing rewrite gives you a type error.
+However, you can get it to work for transformations with somewhat more concrete types (a fixed number of arguments and a "concrete enough" output type.)
+</p>
+
+<p>
+Let's try to write a function that rewrites the AST of an <code>Acc (Vector a) -&gt; Acc (Vector a)</code> and transforms it to a representation of <code>Acc (Vector a) -&gt; Acc (Vector a, Matrix a)</code> - this is the type of our AD transformation in the case where the input is a vector.
+When you try to case match on the function's argument <code>x</code>, pattern matching on certain constructors gives you a type error.
+Indeed, the types of these constructors contradict the type of <code>x</code> - but these constructors could show up at a lower level in the syntax tree, and so you have to repeat almost all the patterns twice.
+</p>
+
+<p>
+These constructors are a small minority, so you can try to go on with automatic differentiation.
+The next problem you run into is dealing with the stream fusion in <code>accelerate</code> - it also does not like its types being changed.
+I believe it is possible to overcome this - I just left it on the table because there were plenty of things to do that I had no idea how to approach at the time and didn't require a solution to the fusion problem.
+Once you've taken care of that, you can automatically differentiate functions of a single array argument, assuming you know the derivatives of everything and how to compose them.
+</p>
+
+<p>
+I think with more time, these problems could have been overcome.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgffa2d7b" class="outline-3">
+<h3 id="orgffa2d7b">Adding a constant to a syntax tree in a type-preserving manner</h3>
+<div class="outline-text-3" id="text-orgffa2d7b">
+<p>
+At one point, I got stuck on the problem of adding a constant to an <code>accelerate</code> syntax tree (in a type-preserving manner, so nothing in the previous section applied.)
+This is the code that Trevor sent back, and I'm grateful he did, because I'd have been stuck for a very long time.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-comment-delimiter">-- </span><span class="org-comment">This is kind of a hack? We can traverse the representation of any type</span>
+<span class="org-comment-delimiter">-- </span><span class="org-comment">down to primitive values in order to get a zero.</span>
+<span class="org-comment-delimiter">--</span>
+<span class="org-haskell-definition">delta</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-keyword">forall</span> env c<span class="org-haskell-operator">.</span> <span class="org-haskell-type">Elt</span> c <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">Int</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Int</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">PreOpenExp</span> acc env aenv c
+<span class="org-haskell-definition">delta</span> i' j' <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Const</span> <span class="org-haskell-operator">$</span> go <span class="org-rainbow-delimiters-depth-1">(</span>eltType <span class="org-rainbow-delimiters-depth-2">(</span>undefined<span class="org-haskell-operator">::</span>c<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-haskell-keyword">where</span>
+    go <span class="org-haskell-operator">::</span> <span class="org-haskell-type">TupleType</span> a <span class="org-haskell-operator">-&gt;</span> a
+    go <span class="org-haskell-constructor">TypeRunit</span>         <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor"><span class="org-rainbow-delimiters-depth-1">()</span></span>
+    go <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">TypeRpair</span> ta tb<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-rainbow-delimiters-depth-1">(</span>go ta, go tb<span class="org-rainbow-delimiters-depth-1">)</span>
+    go <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">TypeRscalar</span> t<span class="org-rainbow-delimiters-depth-1">)</span>   <span class="org-haskell-operator">=</span> scalar t
+
+    scalar <span class="org-haskell-operator">::</span> <span class="org-haskell-type">ScalarType</span> a <span class="org-haskell-operator">-&gt;</span> a
+    scalar <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">SingleScalarType</span> t<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> single t
+    scalar <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">VectorScalarType</span> t<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> vector t
+
+    vector <span class="org-haskell-operator">::</span> <span class="org-haskell-type">VectorType</span> a <span class="org-haskell-operator">-&gt;</span> a
+    vector <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Vector2Type</span> t<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">let</span> x <span class="org-haskell-operator">=</span> single t <span class="org-haskell-keyword">in</span> <span class="org-haskell-constructor">V2</span> x x
+
+    single <span class="org-haskell-operator">::</span> <span class="org-haskell-type">SingleType</span> a <span class="org-haskell-operator">-&gt;</span> a
+    single <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">NumSingleType</span>    t<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> num t
+    single <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">NonNumSingleType</span> t<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> nonnum t
+
+    num <span class="org-haskell-operator">::</span> <span class="org-haskell-type">NumType</span> a <span class="org-haskell-operator">-&gt;</span> a
+    num <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">IntegralNumType</span> t<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">|</span> <span class="org-haskell-constructor">IntegralDict</span> <span class="org-haskell-operator">&lt;-</span> integralDict t <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">if</span> i' <span class="org-haskell-operator">==</span> j' <span class="org-haskell-keyword">then</span> <span class="org-highlight-numbers-number">1</span> <span class="org-haskell-keyword">else</span> <span class="org-highlight-numbers-number">0</span>
+    num <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">FloatingNumType</span> t<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">|</span> <span class="org-haskell-constructor">FloatingDict</span> <span class="org-haskell-operator">&lt;-</span> floatingDict t <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">if</span> i' <span class="org-haskell-operator">==</span> j' <span class="org-haskell-keyword">then</span> <span class="org-highlight-numbers-number">1</span> <span class="org-haskell-keyword">else</span> <span class="org-highlight-numbers-number">0</span>
+
+    nonnum <span class="org-haskell-operator">::</span> <span class="org-haskell-type">NonNumType</span> a <span class="org-haskell-operator">-&gt;</span> a
+    nonnum <span class="org-haskell-operator">=</span> undefined <span class="org-comment-delimiter">-- </span><span class="org-comment">uh..?</span>
+</pre>
+</div>
+<p>
+It turns out <code>accelerate</code> has a generics implementation in it that knows about most of the types it compiles.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org5b8f239" class="outline-3">
+<h3 id="org5b8f239">Tensor contractions</h3>
+<div class="outline-text-3" id="text-org5b8f239">
+<p>
+<code>accelerate</code> supports multidimensional arrays, not just vectors and matrices.
+Although the output of a function might be a vector or a matrix, there's a good chance a higher rank array shows up in an intermediate step.
+The generalized Jacobian of a function \(f\) between higher rank arrays looks like \[
+J_{i_1i_2\cdots i_m j_1 j_2 \cdots j_n}(f) = \frac{\partial f_{i_1i_2\cdots i_m}}{\partial g_{j_1j_2\cdots j_n}}
+\]
+To compose two of these functions, we use the chain rule \[
+J_{i_1i_2\cdots i_m k_1 k_2\cdots k_p}(f \circ g) = J_{i_1i_2\cdots i_m j_1 j_2 \cdots j_n}(f) \circ J_{j_1j_2\cdots j_n k_1 k_2 \cdots k_p}(g) = \frac{\partial f_{i_1i_2\cdots i_m}}{\partial g_{j_1j_2\cdots j_n}} \frac{\partial g_{j_1j_2\cdots j_n}}{\partial x_{k_1k_2\cdots k_p}}
+\]
+This may be possible to do in <code>accelerate</code> generically, but I'm confident it isn't possible without some new primitives.
+On the other hand, the vectorization of <code>accelerate</code> combinators over inner dimensions might mean we don't need full generality due to sparsity.
+I still need to think about this more, especially in the cases of mappings from arrays of rank \(n\) to rank \(n+1\) and rank \(n\) to rank \(n-1\).
+</p>
+</div>
+</div>
+
+<div id="outline-container-orga82886b" class="outline-3">
+<h3 id="orga82886b">Differentiation of accelerate combinators</h3>
+<div class="outline-text-3" id="text-orga82886b">
+<p>
+Since <code>accelerate</code> is a vector language, we can't build up differentiation purely from basic operations.
+We have to differentiate combinators as they are. (I did this in detail for folds <a href="https://ajknapp.github.io/2018/06/01/analytic-folds.html">here</a>
+Unfortunately, folds are a misleading example, in that you get the honest generalized Jacobian.
+In the generic case, you get a sparse tensor in a combinator-specific format.
+Moreover, the set of combinators in the <code>accelerate</code> AST are not differentially closed, but you can avoid using most of the ones that break differential closedness.
+Most of these can or should be translatable to standard sparse tensor formats, but I don't know for sure.
+</p>
+
+<p>
+On the minus side, <code>accelerate</code> will need to support tensor contraction for all pairs of sparse formats.
+On the plus side, this implies a very high potential for performance.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgf46d498" class="outline-3">
+<h3 id="orgf46d498">Dealing with tuples</h3>
+<div class="outline-text-3" id="text-orgf46d498">
+<p>
+Tuples are easy enough to deal with in expressions, but they make life difficult when they are function arguments.
+In the generic case, you end up having to compose linear maps that have different ranks in different parts of the tuple.
+You also have to do smoothly join tuple-based matrix/tensor contraction with array-based contraction.
+Supporting the stencil operations in <code>accelerate</code> will most likely have to be done by converting them to <code>generate</code> expressions.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgc556c2f" class="outline-3">
+<h3 id="orgc556c2f">Hessians and beyond</h3>
+<div class="outline-text-3" id="text-orgc556c2f">
+<p>
+I need to think more about how to support higher-order scalar and vector derivatives with this method - there was just not enough time to do so.
+The abstract of the draft paper I was sent mentioned a solution to this, but that section wasn't finished.
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org25e66a7" class="outline-2">
+<h2 id="org25e66a7">Conclusion and status report</h2>
+<div class="outline-text-2" id="text-org25e66a7">
+<ul class="org-ul">
+<li>Even though I didn't get an AD library working by the end of the summer, I'm still optimistic about the potential of the method.</li>
+<li>If you're willing to deal with the syntactic overhead of threading derivatives around manually, this method is already usable today. I got it to work on an extremely simple vector optimization problem in reverse mode (see Demo.hs in the github repository), and I could have extended it to a simple neural network if I knew the answer to the questions in the tensor contraction section and had more time.</li>
+<li>I'm extremely close to being able to differentiate simple end-user programs automatically (i.e. ones that just use folds and maps). Stream fusion breakage is all that's left in the way of that milestone.</li>
+<li>As I look back over the specifics of what I got stuck on in detail, most of it had to do with types and the fact that I didn't have access to a complete paper. (There was no mention of vector combinator differentiation in the paper, nor any of the mixed-mode combinators I discussed in the first section.)</li>
+<li>In my last meeting with my mentors, I said I thought the only way forward was an AST that compiled to <code>accelerate</code>, but going over the <code>accelerate</code> difficulties a month-ish after I last touched them, I'm not so sure now - the part of the code that deals with the gory internals of <code>accelerate</code> may largely be done.</li>
+<li>A lot depends on the answers to the tensor contraction questions. If we don't need fully generic contractions, we're in business. If not, there's a lot more work that needs to be done on <code>accelerate</code> before AD will be useful in <code>accelerate</code>.</li>
+<li>While the <code>accelerate</code> library was frustrating to use for automated transformation purposes, writing new code in it was an enjoyable experience.</li>
+<li>Working out the <code>compForward</code> and <code>compReverse</code> trick really sold me on Haskell - there is no way I would have discovered that in any other language.</li>
+</ul>
+
+<p>
+Finally, I'd like to thank my mentors Trevor McDonell, Sacha Socholowski, and Edward Kmett for a lot of great conversations and their help with arcane problems of all sorts.
+I would not have gotten half as far and learned a quarter as much if it wasn't for their guidance.
+</p>
+</div>
+</div>

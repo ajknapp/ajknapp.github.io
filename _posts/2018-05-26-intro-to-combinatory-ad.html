@@ -8,9 +8,9 @@ excerpt: A basic overview of a new method of automatic differentiation.
 In this blog post, I will describe the basics of a new form of Automatic Differentiation (AD) that I will be implementing in Haskell for the Google Summer of Code, along with some background and why it is expected that the method will yield a speedup for practical problems.
 </p>
 
-<div id="outline-container-orgcdb9569" class="outline-2">
-<h2 id="orgcdb9569">Introduction</h2>
-<div class="outline-text-2" id="text-orgcdb9569">
+<div id="outline-container-org9cdaf02" class="outline-2">
+<h2 id="org9cdaf02">Introduction</h2>
+<div class="outline-text-2" id="text-org9cdaf02">
 <p>
 There's a lot of digital ink that's been spilled on the subject of AD, so I'll outsource the description elsewhere.
 If you want to learn more about AD, or the terms "forward-mode" and "reverse-mode" don't mean anything to you, <a href="http://www.danielbrice.net/blog/automatic-differentiation-is-trivial-in-haskell/">here</a> are some good <a href="http://h2.jaguarpaw.co.uk/posts/reverse-mode-automatic-differentiation/">Haskell-based articles</a> on the subject.
@@ -29,9 +29,9 @@ Moreover, <a href="https://pdfs.semanticscholar.org/dd3c/a38dc66b7f93b124bb7dc5d
 </div>
 </div>
 
-<div id="outline-container-org76f4b44" class="outline-2">
-<h2 id="org76f4b44">The new method</h2>
-<div class="outline-text-2" id="text-org76f4b44">
+<div id="outline-container-org819693d" class="outline-2">
+<h2 id="org819693d">The new method</h2>
+<div class="outline-text-2" id="text-org819693d">
 <p>
 The method I'll be working on this summer takes a new approach to AD, and is based on in-progress work by Martin Elsman, Fritz Henglein, Gabriele Keller, Ken Friis Larsen, and Dimitrios Vytionitis.
 They refer to the method as "combinatory automatic differentiation", although I think "point-free automatic differentiation" also captures the basic idea.
@@ -88,9 +88,9 @@ If we split up the function train wisely, we'll be able to spend most of our com
 </div>
 </div>
 
-<div id="outline-container-org36a04ab" class="outline-2">
-<h2 id="org36a04ab">Sketch of an implementation</h2>
-<div class="outline-text-2" id="text-org36a04ab">
+<div id="outline-container-org9554788" class="outline-2">
+<h2 id="org9554788">Sketch of an implementation</h2>
+<div class="outline-text-2" id="text-org9554788">
 <p>
 I'll now describe a quick and dirty prototype implementation of the idea, which is extremely inefficient&#x2014;it uses list-based matrix multiplication, among other things.
 </p>
@@ -145,11 +145,11 @@ In this point-free setting, differentiation of an expression is a breeze.
 The <code>diff</code> function differentiates an expression with respect to the \(i\)-th input variable.
 </p>
 <div class="org-src-container">
-<pre class="src src-haskell"><span class="org-haskell-definition">diff</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Int</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">AdExpr</span>
-<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Plus</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> i <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Plus</span> <span class="org-rainbow-delimiters-depth-1">(</span>diff x i<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>diff y i<span class="org-rainbow-delimiters-depth-1">)</span>
-<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> i <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Plus</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-2">(</span>diff x i<span class="org-rainbow-delimiters-depth-2">)</span> y<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> x <span class="org-rainbow-delimiters-depth-2">(</span>diff y i<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
-<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> <span class="org-haskell-keyword">_</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">_</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">0.0</span>
-<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pi</span> i<span class="org-rainbow-delimiters-depth-1">)</span> j <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">if</span> i <span class="org-haskell-operator">==</span> j <span class="org-haskell-keyword">then</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">1.0</span> <span class="org-haskell-keyword">else</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">0.0</span>
+<pre class="src src-haskell"><span class="org-haskell-definition">diff</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Int</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Plus</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> i <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Plus</span> <span class="org-rainbow-delimiters-depth-2">(</span>diff x i<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-2">(</span>diff y i<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Times</span> x y<span class="org-rainbow-delimiters-depth-1">)</span> i <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Plus</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-3">(</span>diff x i<span class="org-rainbow-delimiters-depth-3">)</span> y<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">Times</span> x <span class="org-rainbow-delimiters-depth-3">(</span>diff y i<span class="org-rainbow-delimiters-depth-3">)</span><span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> <span class="org-haskell-keyword">_</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">_</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">0.0</span><span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-definition">diff</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pi</span> i<span class="org-rainbow-delimiters-depth-1">)</span> j <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">if</span> i <span class="org-haskell-operator">==</span> j <span class="org-haskell-keyword">then</span> <span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">1.0</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">else</span> <span class="org-haskell-constructor">Times</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">0.0</span><span class="org-rainbow-delimiters-depth-1">)</span>
 </pre>
 </div>
 <p>
@@ -158,13 +158,13 @@ We use the <code>domainDim</code> function to compute how many "variables" an ex
 </p>
 <div class="org-src-container">
 <pre class="src src-haskell"><span class="org-haskell-definition">grad</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span>
-<span class="org-haskell-definition">grad</span> expr <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>diff expr<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">..</span>domainDim expr <span class="org-haskell-operator">-</span> <span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">grad</span> expr <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span>i <span class="org-haskell-operator">-&gt;</span> diff expr i <span class="org-haskell-operator">$</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">1.0</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">..</span>domainDim expr <span class="org-haskell-operator">-</span> <span class="org-highlight-numbers-number">1</span><span class="org-rainbow-delimiters-depth-1">]</span>
 
 <span class="org-haskell-definition">jacobian</span> <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-1">]</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-rainbow-delimiters-depth-2">[</span><span class="org-haskell-type">AdExpr</span><span class="org-rainbow-delimiters-depth-2">]</span><span class="org-rainbow-delimiters-depth-1">]</span>
 <span class="org-haskell-definition">jacobian</span> expr <span class="org-haskell-operator">=</span> map grad' expr
   <span class="org-haskell-keyword">where</span> dim <span class="org-haskell-operator">=</span> max <span class="org-highlight-numbers-number">0</span> <span class="org-haskell-operator">.</span> decf <span class="org-haskell-operator">.</span> maximum <span class="org-haskell-operator">$</span> map domainDim expr
         decf x <span class="org-haskell-operator">=</span> x<span class="org-haskell-operator">-</span><span class="org-highlight-numbers-number">1</span>
-        grad' e <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span>diff e<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">..</span>dim<span class="org-rainbow-delimiters-depth-1">]</span>
+        grad' e <span class="org-haskell-operator">=</span> map <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span>i <span class="org-haskell-operator">-&gt;</span> diff e i <span class="org-haskell-operator">$</span> <span class="org-haskell-constructor">Constant</span> <span class="org-highlight-numbers-number">1.0</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span><span class="org-highlight-numbers-number">0</span><span class="org-haskell-operator">..</span>dim<span class="org-rainbow-delimiters-depth-1">]</span>
 
 <span class="org-haskell-definition">domainDim</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">AdExpr</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Int</span>
 <span class="org-haskell-definition">domainDim</span> expr <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">if</span> count <span class="org-haskell-operator">==</span> <span class="org-highlight-numbers-number">0</span> <span class="org-haskell-keyword">then</span> <span class="org-highlight-numbers-number">0</span> <span class="org-haskell-keyword">else</span> <span class="org-highlight-numbers-number">1</span> <span class="org-haskell-operator">+</span> count
@@ -242,9 +242,9 @@ We can also define a function to evaluate the Jacobian of a train of function co
 </div>
 </div>
 
-<div id="outline-container-org707ea62" class="outline-2">
-<h2 id="org707ea62">Conclusion</h2>
-<div class="outline-text-2" id="text-org707ea62">
+<div id="outline-container-org558b637" class="outline-2">
+<h2 id="org558b637">Conclusion</h2>
+<div class="outline-text-2" id="text-org558b637">
 <p>
 In this blog post, I've described what I hope to achieve over the summer, and provided a proof-of-concept implementation for the combinatory AD method.
 In future blog posts, I will tackle additional related topics, including the following.
