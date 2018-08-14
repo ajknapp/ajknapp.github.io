@@ -101,7 +101,10 @@ That's the differentiation; all that's left is the automatic part.
 
 * ... of the not-o-matic variety
 
-This was all very elegant, so why didn't I succeed in writing an AD library?
+This was all relatively straightforward (in hindsight, at least), so why didn't I succeed in writing an AD library?
+
+The short answer is "the automatic part."
+
 It's possible to manually write a bunch of =D= combinators and write everything in a point-free style using =Category= instances, but that gets old fast.
 You can write half an =Arrow= instance for =D=, but =arr= is up to its usual dirty tricks: we can't differentiate an arbitrary Haskell function.
 For this reason, the implementation described in Conal Elliott's paper is intended to be used with his compiling to categories GHC plugin.
