@@ -211,7 +211,7 @@ Since =accelerate= is a vector language, we can't build up differentiation purel
 We have to differentiate combinators as they are. (I did this in detail for folds [[https://ajknapp.github.io/2018/06/01/analytic-folds.html][here]].)
 Unfortunately, folds are a misleading example, in that you get the honest generalized Jacobian.
 In the generic case, you get a sparse tensor in a combinator-specific format.
-Moreover, the set of combinators in the =accelerate= AST are not differentially closed, but you can avoid using most of the ones that break differential closedness.
+Moreover, the set of combinators in the =accelerate= AST is not differentially closed, but you can avoid using most of the ones that break differential closedness.
 Most of these can or should be translatable to standard sparse tensor formats, but I don't know for sure.
 
 On the minus side, =accelerate= will need to support tensor contraction for all pairs of sparse formats.
