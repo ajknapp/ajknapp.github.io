@@ -236,7 +236,7 @@ The abstract of the draft paper I was sent mentioned a solution to this, but tha
 - I'm extremely close to being able to differentiate simple end-user programs automatically (i.e. ones that just use folds and maps). Stream fusion breakage is all that's left in the way of that milestone.
 - As I look back over the specifics of what I got stuck on in detail, most of it had to do with types and the fact that I didn't have access to a complete paper. (There was no mention of vector combinator differentiation in the paper, nor any of the mixed-mode combinators I discussed in the first section.)
 - In my last meeting with my mentors, I said I thought the only way forward was an AST that compiled to =accelerate=, but going over the =accelerate= difficulties a month-ish after I last touched them, I'm not so sure now - the part of the code that deals with the gory internals of =accelerate= may largely be done.
-- A lot depends on the answers to the tensor contraction questions. If we don't need fully generic contractions, we're in business. If not, there's a lot more work that needs to be done on =accelerate= before AD will be useful in =accelerate=.
+- A lot depends on the answers to the tensor contraction questions. If we don't need fully generic contractions, we're in business. If not, there's a lot more work that needs to be done on =accelerate= before AD will be useful.
 - While the =accelerate= library was frustrating to use for automated transformation purposes, writing new code in it was an enjoyable experience.
 - Working out the =compForward= and =compReverse= trick really sold me on Haskell - there is no way I would have discovered that in any other language.
 
