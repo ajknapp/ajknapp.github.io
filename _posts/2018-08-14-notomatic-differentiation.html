@@ -287,7 +287,7 @@ I still need to think about this more, especially in the cases of mappings from 
 <div class="outline-text-3" id="text-orga82886b">
 <p>
 Since <code>accelerate</code> is a vector language, we can't build up differentiation purely from basic operations.
-We have to differentiate combinators as they are. (I did this in detail for folds <a href="https://ajknapp.github.io/2018/06/01/analytic-folds.html">here</a>
+We have to differentiate combinators as they are. (I did this in detail for folds <a href="https://ajknapp.github.io/2018/06/01/analytic-folds.html">here</a>.)
 Unfortunately, folds are a misleading example, in that you get the honest generalized Jacobian.
 In the generic case, you get a sparse tensor in a combinator-specific format.
 Moreover, the set of combinators in the <code>accelerate</code> AST are not differentially closed, but you can avoid using most of the ones that break differential closedness.
