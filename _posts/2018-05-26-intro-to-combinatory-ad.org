@@ -101,23 +101,23 @@ evalAd (Times x y) v = evalAd x v * evalAd y v
 In this point-free setting, differentiation of an expression is a breeze.
 The =diff= function differentiates an expression with respect to the \(i\)-th input variable.
 #+BEGIN_SRC haskell
-diff :: AdExpr -> Int -> AdExpr
-diff (Plus x y) i = Plus (diff x i) (diff y i)
-diff (Times x y) i = Plus (Times (diff x i) y) (Times x (diff y i))
-diff (Constant _) _ = Constant 0.0
-diff (Pi i) j = if i == j then Constant 1.0 else Constant 0.0
+diff :: AdExpr -> Int -> (AdExpr -> AdExpr)
+diff (Plus x y) i = Times (Plus (diff x i) (diff y i))
+diff (Times x y) i = Times (Plus (Times (diff x i) y) (Times x (diff y i)))
+diff (Constant _) _ = Times (Constant 0.0)
+diff (Pi i) j = if i == j then Times (Constant 1.0) else Times (Constant 0.0)
 #+END_SRC
 Now that we can differentiate with respect to an individual variable, we can now compute the gradient and Jacobian of functions.
 We use the =domainDim= function to compute how many "variables" an expression depends on.
 #+BEGIN_SRC haskell
 grad :: AdExpr -> [AdExpr]
-grad expr = map (diff expr) [0..domainDim expr - 1]
+grad expr = map (\i -> diff expr i $ Constant 1.0) [0..domainDim expr - 1]
 
 jacobian :: [AdExpr] -> [[AdExpr]]
 jacobian expr = map grad' expr
   where dim = max 0 . decf . maximum $ map domainDim expr
         decf x = x-1
-        grad' e = map (diff e) [0..dim]
+        grad' e = map (\i -> diff e i $ Constant 1.0) [0..dim]
 
 domainDim :: AdExpr -> Int
 domainDim expr = if count == 0 then 0 else 1 + count
