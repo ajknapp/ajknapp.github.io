@@ -297,7 +297,7 @@ Since <code>accelerate</code> is a vector language, we can't build up differenti
 We have to differentiate combinators as they are. (I did this in detail for folds <a href="https://ajknapp.github.io/2018/06/01/analytic-folds.html">here</a>.)
 Unfortunately, folds are a misleading example, in that you get the honest generalized Jacobian.
 In the generic case, you get a sparse tensor in a combinator-specific format.
-Moreover, the set of combinators in the <code>accelerate</code> AST are not differentially closed, but you can avoid using most of the ones that break differential closedness.
+Moreover, the set of combinators in the <code>accelerate</code> AST is not differentially closed, but you can avoid using most of the ones that break differential closedness.
 Most of these can or should be translatable to standard sparse tensor formats, but I don't know for sure.
 </p>
 
