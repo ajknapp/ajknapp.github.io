@@ -162,7 +162,7 @@ Firstly, the way it deals with vectorization is totally incompatible with the wa
 But what really is a dealbreaker is the separate <code>Acc</code> and <code>Exp</code> types in <code>accelerate</code>.
 <code>compReverse</code> and <code>compForward</code> are replaced by a category instance in this setting, and you need two separate category instances <code>k</code> and <code>l</code> to generalize <code>Acc</code> and <code>Exp</code> functions, respectively.
 Say now you want to wrap the <code>accelerate</code> function <code>map :: (Exp a -&gt; Exp b) -&gt; Acc (Array a) -&gt; Acc (Array b)</code> into something like <code>mapC :: a `l` b -&gt; a `k` b</code>.
-If you try to write <code>map f . map g</code>, you're hit with ambiguous type errors, and you now have to manually thread <code>Proxy l</code> arguments everywhere.
+If you try to write <code>mapC f . mapC g</code>, you're hit with ambiguous type errors, and you now have to manually thread <code>Proxy l</code> arguments everywhere.
 </p>
 
 <p>
