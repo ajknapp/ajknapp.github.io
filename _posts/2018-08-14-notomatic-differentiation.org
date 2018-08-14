@@ -227,7 +227,7 @@ Supporting the stencil operations in =accelerate= will most likely have to be do
 ** Hessians and beyond
 
 I need to think more about how to support higher-order scalar and vector derivatives with this method - there was just not enough time to do so.
-The abstract of the draft paper I was sent mentioned a solution to this, but that section wasn't finished.
+The abstract of the draft paper I was sent mentioned a solution to this, but that section wasn't written yet.
 
 * Conclusion and status report
 
