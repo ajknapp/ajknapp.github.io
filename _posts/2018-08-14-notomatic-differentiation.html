@@ -270,10 +270,10 @@ It turns out <code>accelerate</code> has a generics implementation in it that kn
 <code>accelerate</code> supports multidimensional arrays, not just vectors and matrices.
 Although the output of a function might be a vector or a matrix, there's a good chance a higher rank array shows up in an intermediate step.
 The generalized Jacobian of a function \(f\) between higher rank arrays looks like \[
-J_{i_1i_2\cdots i_m j_1 j_2 \cdots j_n}(f) = \frac{\partial f_{i_1i_2\cdots i_m}}{\partial g_{j_1j_2\cdots j_n}}
+D_{\mu_1\mu_2\cdots \mu_m \nu_1 \nu_2 \cdots \nu_n}(f) = \frac{\partial f_{\mu_1\mu_2\cdots \mu_m}}{\partial g_{\nu_1\nu_2\cdots \nu_n}}
 \]
 To compose two of these functions, we use the chain rule \[
-J_{i_1i_2\cdots i_m k_1 k_2\cdots k_p}(f \circ g) = J_{i_1i_2\cdots i_m j_1 j_2 \cdots j_n}(f) \circ J_{j_1j_2\cdots j_n k_1 k_2 \cdots k_p}(g) = \frac{\partial f_{i_1i_2\cdots i_m}}{\partial g_{j_1j_2\cdots j_n}} \frac{\partial g_{j_1j_2\cdots j_n}}{\partial x_{k_1k_2\cdots k_p}}
+D_{\mu_1\mu_2\cdots \mu_m \lambda_1 \lambda_2\cdots \lambda_p}(f \circ g) = D_{\mu_1\mu_2\cdots \mu_m \nu_1 \nu_2 \cdots \nu_n}(f) \circ D_{\nu_1\nu_2\cdots \nu_n \lambda_1 \lambda_2 \cdots \lambda_p}(g) = \frac{\partial f_{\mu_1\mu_2\cdots \mu_m}}{\partial g_{\nu_1\nu_2\cdots \nu_n}} \frac{\partial g_{\nu_1\nu_2\cdots \nu_n}}{\partial x_{\lambda_1\lambda_2\cdots \lambda_p}}
 \]
 This may be possible to do in <code>accelerate</code> generically, but I'm confident it isn't possible without some new primitives.
 On the other hand, the vectorization of <code>accelerate</code> combinators over inner dimensions might mean we don't need full generality due to sparsity.
