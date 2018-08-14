@@ -221,7 +221,7 @@ On the plus side, this implies a very high potential for performance.
 
 Tuples are easy enough to deal with in expressions, but they make life difficult when they are function arguments.
 In the generic case, you end up having to compose linear maps that have different ranks in different parts of the tuple.
-You also have to do smoothly join tuple-based matrix/tensor contraction with array-based contraction.
+You also have to smoothly join tuple-based matrix/tensor contraction with array-based contraction.
 Supporting the stencil operations in =accelerate= will most likely have to be done by converting them to =generate= expressions.
 
 ** Hessians and beyond
