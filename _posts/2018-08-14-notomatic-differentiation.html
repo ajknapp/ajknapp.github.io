@@ -143,7 +143,14 @@ That's the differentiation; all that's left is the automatic part.
 <h2 id="org8dda0b3">&#x2026; of the not-o-matic variety</h2>
 <div class="outline-text-2" id="text-org8dda0b3">
 <p>
-This was all very elegant, so why didn't I succeed in writing an AD library?
+This was all relatively straightforward (in hindsight, at least), so why didn't I succeed in writing an AD library?
+</p>
+
+<p>
+The short answer is "the automatic part."
+</p>
+
+<p>
 It's possible to manually write a bunch of <code>D</code> combinators and write everything in a point-free style using <code>Category</code> instances, but that gets old fast.
 You can write half an <code>Arrow</code> instance for <code>D</code>, but <code>arr</code> is up to its usual dirty tricks: we can't differentiate an arbitrary Haskell function.
 For this reason, the implementation described in Conal Elliott's paper is intended to be used with his compiling to categories GHC plugin.
