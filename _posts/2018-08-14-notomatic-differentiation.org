@@ -114,7 +114,7 @@ Firstly, the way it deals with vectorization is totally incompatible with the wa
 But what really is a dealbreaker is the separate =Acc= and =Exp= types in =accelerate=.
 =compReverse= and =compForward= are replaced by a category instance in this setting, and you need two separate category instances =k= and =l= to generalize =Acc= and =Exp= functions, respectively.
 Say now you want to wrap the =accelerate= function =map :: (Exp a -> Exp b) -> Acc (Array a) -> Acc (Array b)= into something like =mapC :: a `l` b -> a `k` b=.
-If you try to write =map f . map g=, you're hit with ambiguous type errors, and you now have to manually thread =Proxy l= arguments everywhere.
+If you try to write =mapC f . mapC g=, you're hit with ambiguous type errors, and you now have to manually thread =Proxy l= arguments everywhere.
 
 Since the whole point of automatic differentiation is to avoid threading derivatives around manually in a mechanical but easy to screw up way, our other choice is to transform =accelerate= syntax trees to thread AD state around.
 Unfortunately, [[http://www.acceleratehs.org/publications.html#type-safe-runtime-code-generation-accelerate-to-llvm][Trevor McDonell et al.]] put a lot of effort and thought into making the =accelerate= compiler preserve types as a bug-squashing mechanism.
