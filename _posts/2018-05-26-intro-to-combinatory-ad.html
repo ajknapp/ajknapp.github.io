@@ -8,9 +8,9 @@ excerpt: A basic overview of a new method of automatic differentiation.
 In this blog post, I will describe the basics of a new form of Automatic Differentiation (AD) that I will be implementing in Haskell for the Google Summer of Code, along with some background and why it is expected that the method will yield a speedup for practical problems.
 </p>
 
-<div id="outline-container-org9cdaf02" class="outline-2">
-<h2 id="org9cdaf02">Introduction</h2>
-<div class="outline-text-2" id="text-org9cdaf02">
+<div id="outline-container-org5a7f950" class="outline-2">
+<h2 id="org5a7f950">Introduction</h2>
+<div class="outline-text-2" id="text-org5a7f950">
 <p>
 There's a lot of digital ink that's been spilled on the subject of AD, so I'll outsource the description elsewhere.
 If you want to learn more about AD, or the terms "forward-mode" and "reverse-mode" don't mean anything to you, <a href="http://www.danielbrice.net/blog/automatic-differentiation-is-trivial-in-haskell/">here</a> are some good <a href="http://h2.jaguarpaw.co.uk/posts/reverse-mode-automatic-differentiation/">Haskell-based articles</a> on the subject.
@@ -29,9 +29,9 @@ Moreover, <a href="https://pdfs.semanticscholar.org/dd3c/a38dc66b7f93b124bb7dc5d
 </div>
 </div>
 
-<div id="outline-container-org819693d" class="outline-2">
-<h2 id="org819693d">The new method</h2>
-<div class="outline-text-2" id="text-org819693d">
+<div id="outline-container-org44adb30" class="outline-2">
+<h2 id="org44adb30">The new method</h2>
+<div class="outline-text-2" id="text-org44adb30">
 <p>
 The method I'll be working on this summer takes a new approach to AD, and is based on in-progress work by Martin Elsman, Fritz Henglein, Gabriele Keller, Ken Friis Larsen, and Dimitrios Vytionitis.
 They refer to the method as "combinatory automatic differentiation", although I think "point-free automatic differentiation" also captures the basic idea.
@@ -88,9 +88,9 @@ If we split up the function train wisely, we'll be able to spend most of our com
 </div>
 </div>
 
-<div id="outline-container-org9554788" class="outline-2">
-<h2 id="org9554788">Sketch of an implementation</h2>
-<div class="outline-text-2" id="text-org9554788">
+<div id="outline-container-org54ecd82" class="outline-2">
+<h2 id="org54ecd82">Sketch of an implementation</h2>
+<div class="outline-text-2" id="text-org54ecd82">
 <p>
 I'll now describe a quick and dirty prototype implementation of the idea, which is extremely inefficient&#x2014;it uses list-based matrix multiplication, among other things.
 </p>
@@ -242,9 +242,9 @@ We can also define a function to evaluate the Jacobian of a train of function co
 </div>
 </div>
 
-<div id="outline-container-org558b637" class="outline-2">
-<h2 id="org558b637">Conclusion</h2>
-<div class="outline-text-2" id="text-org558b637">
+<div id="outline-container-org1e5bf4c" class="outline-2">
+<h2 id="org1e5bf4c">Conclusion</h2>
+<div class="outline-text-2" id="text-org1e5bf4c">
 <p>
 In this blog post, I've described what I hope to achieve over the summer, and provided a proof-of-concept implementation for the combinatory AD method.
 In future blog posts, I will tackle additional related topics, including the following.

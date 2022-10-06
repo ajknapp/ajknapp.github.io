@@ -25,9 +25,9 @@ The paper for the method that I was using is still unfinished, so I can't say fo
 (Of course, you need derivative information for primitives as well.)
 </p>
 
-<div id="outline-container-orgd293c17" class="outline-2">
-<h2 id="orgd293c17">Differentiation&#x2026;</h2>
-<div class="outline-text-2" id="text-orgd293c17">
+<div id="outline-container-org8d61851" class="outline-2">
+<h2 id="org8d61851">Differentiation&#x2026;</h2>
+<div class="outline-text-2" id="text-org8d61851">
 <p>
 How does this work?
 Let's start with forward-mode AD for scalar expressions.
@@ -103,8 +103,8 @@ We can do this elegantly with the <code>compForward</code> and <code>compReverse
 <pre class="example">
 Matrix (Z :. 2 :. 100) [...]
 (4.70 secs, 8,707,288,416 bytes)
-
 </pre>
+
 
 <div class="org-src-container">
 <pre class="src src-haskell">&#955;<span class="org-haskell-definition">&gt;</span> run <span class="org-haskell-operator">$</span> <span class="org-rainbow-delimiters-depth-1">(</span>compReverse g' 
@@ -116,8 +116,8 @@ Matrix (Z :. 2 :. 100) [...]
 <pre class="example">
 Matrix (Z :. 2 :. 100) [...]
 (0.19 secs, 188,243,768 bytes)
-
 </pre>
+
 
 <p>
 It doesn't help in this case, but we can support mixed-mode computation easily: anytime you want to switch modes, just feed the comp train an <code>id</code> and start a new one.
@@ -130,8 +130,8 @@ It doesn't help in this case, but we can support mixed-mode computation easily: 
 <pre class="example">
 Matrix (Z :. 2 :. 100) [...]
 (0.47 secs, 688,244,264 bytes)
-
 </pre>
+
 
 <p>
 That's the differentiation; all that's left is the automatic part.
@@ -139,9 +139,9 @@ That's the differentiation; all that's left is the automatic part.
 </div>
 </div>
 
-<div id="outline-container-org8dda0b3" class="outline-2">
-<h2 id="org8dda0b3">&#x2026; of the not-o-matic variety</h2>
-<div class="outline-text-2" id="text-org8dda0b3">
+<div id="outline-container-org09b093b" class="outline-2">
+<h2 id="org09b093b">&#x2026; of the not-o-matic variety</h2>
+<div class="outline-text-2" id="text-org09b093b">
 <p>
 This was all relatively straightforward (in hindsight, at least), so why didn't I succeed in writing an AD library?
 </p>
@@ -176,9 +176,9 @@ I'll walk through a few examples of things that are critical for AD that are eit
 </p>
 </div>
 
-<div id="outline-container-orgf198159" class="outline-3">
-<h3 id="orgf198159">Type-changing function transformations</h3>
-<div class="outline-text-3" id="text-orgf198159">
+<div id="outline-container-org26b5fff" class="outline-3">
+<h3 id="org26b5fff">Type-changing function transformations</h3>
+<div class="outline-text-3" id="text-org26b5fff">
 <p>
 The AST for <code>accelerate</code> array functions has two constructors: <code>Alam</code> and <code>Abody</code>.
 A function of two arguments would get translated to <code>Alam(Alam(Abody accelerateExpression))</code>, where <code>accelerateExpression</code> has type <code>OpenAcc aenv t</code> - basically an AST for expressions that keeps track of result type and the environment of array variables.
@@ -226,9 +226,9 @@ I think with more time, these problems could have been overcome.
 </div>
 </div>
 
-<div id="outline-container-orgffa2d7b" class="outline-3">
-<h3 id="orgffa2d7b">Adding a constant to a syntax tree in a type-preserving manner</h3>
-<div class="outline-text-3" id="text-orgffa2d7b">
+<div id="outline-container-org05a6626" class="outline-3">
+<h3 id="org05a6626">Adding a constant to a syntax tree in a type-preserving manner</h3>
+<div class="outline-text-3" id="text-org05a6626">
 <p>
 At one point, I got stuck on the problem of adding a constant to an <code>accelerate</code> syntax tree (in a type-preserving manner, so nothing in the previous section applied.)
 This is the code that Trevor sent back, and I'm grateful he did, because I'd have been stuck for a very long time.
@@ -270,9 +270,9 @@ It turns out <code>accelerate</code> has a generics implementation in it that kn
 </div>
 </div>
 
-<div id="outline-container-org5b8f239" class="outline-3">
-<h3 id="org5b8f239">Tensor contractions</h3>
-<div class="outline-text-3" id="text-org5b8f239">
+<div id="outline-container-orgf092ed9" class="outline-3">
+<h3 id="orgf092ed9">Tensor contractions</h3>
+<div class="outline-text-3" id="text-orgf092ed9">
 <p>
 <code>accelerate</code> supports multidimensional arrays, not just vectors and matrices.
 Although the output of a function might be a vector or a matrix, there's a good chance a higher rank array shows up in an intermediate step.
@@ -289,9 +289,9 @@ I still need to think about this more, especially in the cases of mappings from 
 </div>
 </div>
 
-<div id="outline-container-orga82886b" class="outline-3">
-<h3 id="orga82886b">Differentiation of accelerate combinators</h3>
-<div class="outline-text-3" id="text-orga82886b">
+<div id="outline-container-orga9f3338" class="outline-3">
+<h3 id="orga9f3338">Differentiation of accelerate combinators</h3>
+<div class="outline-text-3" id="text-orga9f3338">
 <p>
 Since <code>accelerate</code> is a vector language, we can't build up differentiation purely from basic operations.
 We have to differentiate combinators as they are. (I did this in detail for folds <a href="https://ajknapp.github.io/2018/06/01/analytic-folds.html">here</a>.)
@@ -308,9 +308,9 @@ On the plus side, this implies a very high potential for performance.
 </div>
 </div>
 
-<div id="outline-container-orgf46d498" class="outline-3">
-<h3 id="orgf46d498">Dealing with tuples</h3>
-<div class="outline-text-3" id="text-orgf46d498">
+<div id="outline-container-orgb897298" class="outline-3">
+<h3 id="orgb897298">Dealing with tuples</h3>
+<div class="outline-text-3" id="text-orgb897298">
 <p>
 Tuples are easy enough to deal with in expressions, but they make life difficult when they are function arguments.
 In the generic case, you end up having to compose linear maps that have different ranks in different parts of the tuple.
@@ -320,9 +320,9 @@ Supporting the stencil operations in <code>accelerate</code> will most likely ha
 </div>
 </div>
 
-<div id="outline-container-orgc556c2f" class="outline-3">
-<h3 id="orgc556c2f">Hessians and beyond</h3>
-<div class="outline-text-3" id="text-orgc556c2f">
+<div id="outline-container-org770e970" class="outline-3">
+<h3 id="org770e970">Hessians and beyond</h3>
+<div class="outline-text-3" id="text-org770e970">
 <p>
 I need to think more about how to support higher-order scalar and vector derivatives with this method - there was just not enough time to do so.
 The abstract of the draft paper I was sent mentioned a solution to this, but that section wasn't written yet.
@@ -331,9 +331,9 @@ The abstract of the draft paper I was sent mentioned a solution to this, but tha
 </div>
 </div>
 
-<div id="outline-container-org25e66a7" class="outline-2">
-<h2 id="org25e66a7">Conclusion and status report</h2>
-<div class="outline-text-2" id="text-org25e66a7">
+<div id="outline-container-orgd58559a" class="outline-2">
+<h2 id="orgd58559a">Conclusion and status report</h2>
+<div class="outline-text-2" id="text-orgd58559a">
 <ul class="org-ul">
 <li>Even though I didn't get an AD library working by the end of the summer, I'm still optimistic about the potential of the method.</li>
 <li>If you're willing to deal with the syntactic overhead of threading derivatives around manually, this method is already usable today. I got it to work on an extremely simple vector optimization problem in reverse mode (see Demo.hs in the github repository), and I could have extended it to a simple neural network if I knew the answer to the questions in the tensor contraction section and had more time.</li>
