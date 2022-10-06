@@ -205,16 +205,16 @@ blockquote {
  */
 pre,
 code {
-    @include relative-font-size(0.8375);
+    @include relative-font-size(0.85);
     // background-color: #eef;
-    background-color: rgba(63, 63, 63, 0.4);
-    font-family: "Droid Sans Mono", "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Droid Sans Mono", "Courier New", Courier, monospace;
+    // background-color: rgba(63, 63, 63, 0.4);
+    font-family: "Droid Sans Mono", "Noto Sans Mono", "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
 }
 
 code {
-  padding: 1px 5px;
-  border: 1px solid $grey-color-light;
-  border-radius: 3px;
+  // padding: 1px 5px;
+  // border: 1px solid $grey-color-light;
+  // border-radius: 5px;
 }
 
 pre {
@@ -222,6 +222,7 @@ pre {
   overflow-x: auto;
   font-size: 13px;
   border-radius: 7px;
+  background-color: rgba(63, 63, 63, 0.4);
 
   > code {
     border: 0;
