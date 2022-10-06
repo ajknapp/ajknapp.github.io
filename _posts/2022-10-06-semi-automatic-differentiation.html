@@ -1,0 +1,332 @@
+---
+layout: post
+title: Semi-automatic Differentiation
+excerpt: Check out this one weird trick for composing differentiable maps that Big Stochastic Graph doesn't want you to know!
+---
+\(\require{AMScd}\)
+
+<p>
+This is a brief note that on something I really wish I had realized a couple years ago.
+My <a href="../../.././2018/08/14/notomatic-differentiation.html">GSOC project</a> didn't quite work out the way I hoped it would, but it seems that it turned into <a href="https://studenttheses.uu.nl/bitstream/handle/20.500.12932/38958/report.pdf?sequence=1&amp;isAllowed=y">someone's master's thesis</a>.
+Last week, I realized that my failed attempt to translate the ideas of Conal Elliott's <a href="https://arxiv.org/abs/1804.00746">simple essence of automatic differentiation</a> to the setting of <code>accelerate</code> were not in vain<sup><a id="fnr.1" class="footref" href="#fn.1" role="doc-backlink">1</a></sup>.
+If you're willing to lean on the the existing <a href="https://hackage.haskell.org/package/ad">ad package</a>, you can end up with a very nice framework for composing functions, as well as their vector-Jacobian and Jacobian-vector products.
+The formalism is flexible enough to work with (monadic) code generation and <code>accelerate</code>, which are both important to me.
+Critically, this formalism allows the implicit "reverse mode AD tape" of the computation <code>map f v</code> to have a single node, not one node for each variable in the vector, and to have containers full of unboxed IEEE floats, not boxed types containing functions.
+The node reduction is a major performance win, and an <code>accelerate</code> implementation would be impossible without unboxed types.
+</p>
+
+<div id="outline-container-orgc569ceb" class="outline-2">
+<h2 id="orgc569ceb">Types from the paper</h2>
+<div class="outline-text-2" id="text-orgc569ceb">
+<p>
+Let's revisit the first type of the simple essence paper.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">D</span> a b <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">D</span> <span class="org-rainbow-delimiters-depth-1">(</span>a <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span>b, a <span class="org-haskell-operator">-+&gt;</span> b<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-keyword">type</span> a <span class="org-haskell-operator">-+&gt;</span> b <span class="org-haskell-operator">=</span> a <span class="org-haskell-operator">-&gt;</span> b <span class="org-comment-delimiter">-- </span><span class="org-comment">a linear map which yields the derivative</span>
+</pre>
+</div>
+<p>
+Over the course of the paper, Elliott generalizes this to the following type
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">D</span> k a b <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">D</span> <span class="org-rainbow-delimiters-depth-1">(</span>a <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span>b, k a b<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+where <code>k</code> is instantiated to several concrete categories, yielding forward mode and reverse mode automatic differentiation.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd81c41b" class="outline-2">
+<h2 id="orgd81c41b">The trick</h2>
+<div class="outline-text-2" id="text-orgd81c41b">
+<p>
+The proper setting for automatic differentiation is not <code>Hask</code>, where the objects are types and the morphisms are functions, but the functor category on <code>Hask</code>, where the objects are functors and the morphisms are natural (well, parametric) transformations between them.
+The following types move us into the functor category setting.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-comment-delimiter">-- </span><span class="org-comment">push forward a tangent vector, aka Jacobian-vector product</span>
+<span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">FAD</span> f g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">FAD</span> <span class="org-rainbow-delimiters-depth-1">{</span>
+  getFAD <span class="org-haskell-operator">::</span> <span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> <span class="org-haskell-type">Num</span> a <span class="org-haskell-operator">=&gt;</span> f a <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span>g a, f a <span class="org-haskell-operator">-&gt;</span> g a<span class="org-rainbow-delimiters-depth-2">)</span>
+<span class="org-rainbow-delimiters-depth-1">}</span>
+
+<span class="org-comment-delimiter">-- </span><span class="org-comment">pull back a cotangent covector, aka vector-Jacobian product</span>
+<span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">RAD</span> f g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RAD</span> <span class="org-rainbow-delimiters-depth-1">{</span>
+  getRAD <span class="org-haskell-operator">::</span> <span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> <span class="org-haskell-type">Num</span> a <span class="org-haskell-operator">=&gt;</span> f a <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span>g a, g a <span class="org-haskell-operator">-&gt;</span> f a<span class="org-rainbow-delimiters-depth-2">)</span>
+<span class="org-rainbow-delimiters-depth-1">}</span>
+</pre>
+</div>
+<p>
+Once again, the second element of the tuple is a linear map, but the linear map is now the entire Jacobian!
+</p>
+
+<p>
+This is wonderful and purely functional, but you eventually need effects, if only to use LAPACK or cuBLAS.
+Thus, the user needs to be able to write their own vector-Jacobian and Jacobian-vector products that contain effects.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">FADT</span> m f g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">FADT</span> <span class="org-rainbow-delimiters-depth-1">{</span>
+  getFADT <span class="org-haskell-operator">::</span> <span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> <span class="org-haskell-type">Num</span> a <span class="org-haskell-operator">=&gt;</span> f a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-2">(</span>g a, f a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-3">(</span>g a<span class="org-rainbow-delimiters-depth-3">)</span><span class="org-rainbow-delimiters-depth-2">)</span>
+<span class="org-rainbow-delimiters-depth-1">}</span>
+
+<span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">RADT</span> m f g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-rainbow-delimiters-depth-1">{</span>
+  getRADT <span class="org-haskell-operator">::</span> <span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> <span class="org-haskell-type">Num</span> a <span class="org-haskell-operator">=&gt;</span> f a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-2">(</span>g a, g a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-3">(</span>f a<span class="org-rainbow-delimiters-depth-3">)</span><span class="org-rainbow-delimiters-depth-2">)</span>
+<span class="org-rainbow-delimiters-depth-1">}</span>
+
+<span class="org-haskell-keyword">type</span> <span class="org-haskell-type">FAD</span> f g <span class="org-haskell-operator">=</span> <span class="org-haskell-type">FADT</span> <span class="org-haskell-type">Identity</span> f g
+<span class="org-haskell-keyword">type</span> <span class="org-haskell-type">RAD</span> f g <span class="org-haskell-operator">=</span> <span class="org-haskell-type">RADT</span> <span class="org-haskell-type">Identity</span> f g
+</pre>
+</div>
+<p>
+(By the way: if you're after high performance, and you're computing a function that is a sum of functions that depend on a small fraction of the total variables, try instantiating <code>m</code> as a monad that generates LLVM rather than <code>IO</code>.
+This works even better if you only need Hessian-vector products, e.g. as part of a truncated Newton-CG optimization routine.
+If you're implementing a neural network and spend all your time on matrix multiplications, <code>IO</code> is fine.)
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgf8f8407" class="outline-2">
+<h2 id="orgf8f8407">A sketch of a library</h2>
+<div class="outline-text-2" id="text-orgf8f8407">
+<p>
+From now on, I'll only use the <code>RADT</code> type, since all the instances for <code>FADT</code> are substantially similar.
+We can immediately write a <code>Category</code> instance.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">instance</span> <span class="org-haskell-type">Monad</span> m <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">Category</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">RADT</span> m<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">where</span>
+  id <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>fa <span class="org-haskell-operator">-&gt;</span> pure <span class="org-rainbow-delimiters-depth-1">(</span>fa, pure<span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-haskell-constructor">RADT</span> g <span class="org-haskell-operator">.</span> <span class="org-haskell-constructor">RADT</span> f <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>fa <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-rainbow-delimiters-depth-1">(</span>ga, dg<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> f fa
+    <span class="org-rainbow-delimiters-depth-1">(</span>ha, dh<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> g ga
+    pure <span class="org-rainbow-delimiters-depth-1">(</span>ha, dg <span class="org-haskell-operator">&lt;=&lt;</span> dh<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+Since we're working in the category of "natural" transformations, we're not going to be able to write many other instances with normal Haskell typeclasses.
+However, we can write a higher-kinded <code>Strong</code> instance, albeit without the profunctor instance we would like.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-comment-delimiter">-- </span><span class="org-comment">HStrong should really have a FProfunctor p constraint, but I don't think</span>
+<span class="org-comment-delimiter">-- </span><span class="org-comment">it's possible to write one with this encoding.</span>
+<span class="org-haskell-keyword">class</span> <span class="org-haskell-type">HStrong</span> p <span class="org-haskell-keyword">where</span>
+  ffirst <span class="org-haskell-operator">::</span> p f g <span class="org-haskell-operator">-&gt;</span> p <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">Product</span> f h<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">Product</span> g h<span class="org-rainbow-delimiters-depth-1">)</span>
+  fsecond <span class="org-haskell-operator">::</span> p f g <span class="org-haskell-operator">-&gt;</span> p <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">Product</span> h f<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">Product</span> h g<span class="org-rainbow-delimiters-depth-1">)</span>
+
+<span class="org-haskell-keyword">instance</span> <span class="org-haskell-type">Monad</span> m <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">HStrong</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">RADT</span> m<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">where</span>
+  ffirst <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">RADT</span> d<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pair</span> fa ha<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-rainbow-delimiters-depth-1">(</span>ga, dg<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> d fa
+    pure <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pair</span> ga ha, <span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">Pair</span> df' dh'<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> dg df' <span class="org-haskell-operator">&gt;&gt;=</span> pure <span class="org-haskell-operator">.</span> flip <span class="org-haskell-constructor">Pair</span> dh'<span class="org-rainbow-delimiters-depth-1">)</span>
+  fsecond <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">RADT</span> d<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pair</span> ha fa<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-rainbow-delimiters-depth-1">(</span>ga, dg<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> d fa
+    pure <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Pair</span> ha ga, <span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">Pair</span> dh' df'<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> dg df' <span class="org-haskell-operator">&gt;&gt;=</span> pure <span class="org-haskell-operator">.</span> <span class="org-haskell-constructor">Pair</span> dh'<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+We can also write the moral equivalent of <code>arr</code>, with many extra constraints to satisfy the <code>ad</code> and <code>linear</code> libraries.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-definition">liftRADT</span>
+  <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">Additive</span> f, <span class="org-haskell-type">Traversable</span> f, <span class="org-haskell-type">Additive</span> g,
+      <span class="org-haskell-type">Foldable</span> g, <span class="org-haskell-type">Functor</span> g, <span class="org-haskell-type">Monad</span> m<span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-haskell-operator">=&gt;</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-keyword">forall</span> s<span class="org-haskell-operator">.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-type">Reifies</span> s <span class="org-haskell-type">Tape</span>, <span class="org-haskell-type">Num</span> a<span class="org-rainbow-delimiters-depth-2">)</span>
+      <span class="org-haskell-operator">=&gt;</span> f <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-type">Reverse</span> s a<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> g <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-type">Reverse</span> s a<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">RADT</span> m f g
+<span class="org-haskell-definition">liftRADT</span> f <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>fa <span class="org-haskell-operator">-&gt;</span>
+  <span class="org-haskell-keyword">let</span> j <span class="org-haskell-operator">=</span> jacobian' f fa
+      g <span class="org-haskell-operator">=</span> fmap fst j
+      dg <span class="org-haskell-operator">=</span> fmap snd j
+  <span class="org-haskell-keyword">in</span> pure <span class="org-rainbow-delimiters-depth-1">(</span>g, pure <span class="org-haskell-operator">.</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-operator">*!</span> dg<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+Ideally, we could use rebindable syntax to take advantage of arrow notation, but the preprocessor generates code with tuples, which are not the categorical product type we care about here.
+(We would want to use <code>Data.Functor.Product</code> instead.)
+In any case, we can write what I think should be a higher-kinded indexed monad instance.
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">class</span> <span class="org-haskell-type">HIndexedMonad</span> <span class="org-rainbow-delimiters-depth-1">(</span>m <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-operator">*</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-operator">*</span><span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-operator">*</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-operator">*</span><span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-operator">*</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">where</span>
+  freturn <span class="org-haskell-operator">::</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> f a <span class="org-haskell-operator">-&gt;</span> m f f<span class="org-rainbow-delimiters-depth-1">)</span>
+  fbind <span class="org-haskell-operator">::</span> m f g <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> f a <span class="org-haskell-operator">-&gt;</span> m g h<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">-&gt;</span> m f h
+
+<span class="org-haskell-keyword">instance</span> <span class="org-haskell-type">Monad</span> m <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">HIndexedMonad</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">RADT</span> m<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">where</span>
+  freturn f <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>fa <span class="org-haskell-operator">-&gt;</span> pure <span class="org-rainbow-delimiters-depth-1">(</span>fa, pure<span class="org-rainbow-delimiters-depth-1">)</span>
+  fbind <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">RADT</span> f<span class="org-rainbow-delimiters-depth-1">)</span> m <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>fa <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-haskell-keyword">let</span> <span class="org-haskell-constructor">RADT</span> h <span class="org-haskell-operator">=</span> m fa
+    <span class="org-rainbow-delimiters-depth-1">(</span>ga, dg<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> f fa
+    <span class="org-rainbow-delimiters-depth-1">(</span>ha, dh<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> h ga
+    pure <span class="org-rainbow-delimiters-depth-1">(</span>ha, dh <span class="org-haskell-operator">&gt;=&gt;</span> dg<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+<p>
+but this isn't very useful, since the <code>forall</code> guarantees we can't do anything interesting with the variables we bind with <code>QualifiedDo</code> notation.
+</p>
+
+<p>
+What do some basic instances that use real numbers instead of category theory look like in this setting?
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">instance</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">Additive</span> f, <span class="org-haskell-type">Monad</span> m<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">Num</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-type">RADT</span> m f <span class="org-haskell-type">Identity</span><span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-keyword">where</span>
+  fromInteger a <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span><span class="org-haskell-keyword">_</span> <span class="org-haskell-operator">-&gt;</span>
+    <span class="org-haskell-keyword">let</span> a <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Identity</span> <span class="org-rainbow-delimiters-depth-1">(</span>fromInteger a<span class="org-rainbow-delimiters-depth-1">)</span>
+        da <span class="org-haskell-operator">=</span> pure <span class="org-haskell-operator">.</span> const zero
+      pure <span class="org-rainbow-delimiters-depth-1">(</span>a, da<span class="org-rainbow-delimiters-depth-1">)</span>
+
+  <span class="org-haskell-constructor">RADT</span> f <span class="org-haskell-operator">+</span> <span class="org-haskell-constructor">RADT</span> g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>z <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-rainbow-delimiters-depth-1">(</span>u,dudw<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> f z
+    <span class="org-rainbow-delimiters-depth-1">(</span>v,dvdw<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> g z
+    <span class="org-haskell-keyword">let</span> w <span class="org-haskell-operator">=</span> u <span class="org-haskell-operator">+</span> v
+        dw dw' <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">do</span>
+          du' <span class="org-haskell-operator">&lt;-</span> dudw dw'
+          dv' <span class="org-haskell-operator">&lt;-</span> dvdw dw'
+          pure <span class="org-haskell-operator">$</span> du' <span class="org-haskell-operator">^+^</span> dv'
+    pure <span class="org-rainbow-delimiters-depth-1">(</span>w, dw<span class="org-rainbow-delimiters-depth-1">)</span>
+
+  <span class="org-haskell-constructor">RADT</span> f <span class="org-haskell-operator">-</span> <span class="org-haskell-constructor">RADT</span> g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>z <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-rainbow-delimiters-depth-1">(</span>u,dudw<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> f z
+    <span class="org-rainbow-delimiters-depth-1">(</span>v,dvdw<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> g z
+    <span class="org-haskell-keyword">let</span> w <span class="org-haskell-operator">=</span> u <span class="org-haskell-operator">-</span> v
+        dw dw' <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">do</span>
+          du' <span class="org-haskell-operator">&lt;-</span> dudw dw'
+          dv' <span class="org-haskell-operator">&lt;-</span> dvdw dw'
+          pure <span class="org-haskell-operator">$</span> du' <span class="org-haskell-operator">^-^</span> dv'
+    pure <span class="org-rainbow-delimiters-depth-1">(</span>w, dw<span class="org-rainbow-delimiters-depth-1">)</span>
+
+  <span class="org-haskell-constructor">RADT</span> f <span class="org-haskell-operator">*</span> <span class="org-haskell-constructor">RADT</span> g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>z <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-rainbow-delimiters-depth-1">(</span>u,dudw<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> f z
+    <span class="org-rainbow-delimiters-depth-1">(</span>v,dvdw<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> g z
+    <span class="org-haskell-keyword">let</span> w <span class="org-haskell-operator">=</span> u <span class="org-haskell-operator">*</span> v
+        dw dw' <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">do</span>
+          du' <span class="org-haskell-operator">&lt;-</span> dudw dw'
+          dv' <span class="org-haskell-operator">&lt;-</span> dvdw dw'
+          pure <span class="org-haskell-operator">$</span> du' <span class="org-haskell-operator">^*</span> runIdentity v <span class="org-haskell-operator">^+^</span> dv' <span class="org-haskell-operator">^*</span> runIdentity u
+    pure <span class="org-rainbow-delimiters-depth-1">(</span>w, dw<span class="org-rainbow-delimiters-depth-1">)</span>
+
+  abs <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">RADT</span> f<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span>z <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+    <span class="org-rainbow-delimiters-depth-1">(</span>u, dudw<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">&lt;-</span> f z
+    <span class="org-haskell-keyword">let</span> w <span class="org-haskell-operator">=</span> abs u
+        dw dw' <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">do</span>
+          du' <span class="org-haskell-operator">&lt;-</span> dudw dw'
+          pure <span class="org-haskell-operator">$</span> du' <span class="org-haskell-operator">^*</span> signum <span class="org-rainbow-delimiters-depth-1">(</span>runIdentity u<span class="org-rainbow-delimiters-depth-1">)</span>
+    pure <span class="org-rainbow-delimiters-depth-1">(</span>w, dw<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+This is not a terribly useful library; since we can't use <code>proc</code> or <code>do</code> notation, we have to write everything in a point-free style.
+Let's fix this problem.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgdc5f04a" class="outline-2">
+<h2 id="orgdc5f04a">van Laarhoven lenses</h2>
+<div class="outline-text-2" id="text-orgdc5f04a">
+<p>
+There is hardly any code to be written if we realize that <code>RAD</code> is just a <a href="http://www.philipzucker.com/reverse-mode-auto-differentiation-kind-like-lens/">lens</a> with an extra forall.
+If we are willing to abandon some type safety by replacing <code>Data.Functor.Product</code> with regular tuples, we can even use arrow notation (assuming we only use a <code>NatLens</code> between the arrow tip and tail that computes derivatives, and only pack arguments into tuples on the right hand side of the tail.)
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">type</span> <span class="org-haskell-type">NatLens</span> f g h k <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> <span class="org-haskell-type">Floating</span> a <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">Lens</span> <span class="org-rainbow-delimiters-depth-1">(</span>f a<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>g a<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>h a<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span>k a<span class="org-rainbow-delimiters-depth-1">)</span>
+<span class="org-haskell-keyword">type</span> <span class="org-haskell-type">NatLens'</span> f g <span class="org-haskell-operator">=</span> <span class="org-haskell-type">NatLens</span> f f g g
+
+<span class="org-haskell-definition">l1</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">NatLens'</span> <span class="org-haskell-type">V2</span> <span class="org-haskell-type">V2</span>
+<span class="org-haskell-definition">l1</span> <span class="org-haskell-operator">=</span> lens <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">V2</span> u v<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-constructor">V2</span> <span class="org-rainbow-delimiters-depth-2">(</span>sin u<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-2">(</span>cos v<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+          <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">V2</span> u v<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">V2</span> dudk dvdk<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span>
+             <span class="org-haskell-constructor">V2</span> <span class="org-rainbow-delimiters-depth-2">(</span>cos u<span class="org-haskell-operator">*</span>dudk<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-2">(</span>negate <span class="org-haskell-operator">$</span> sin v<span class="org-haskell-operator">*</span>dvdk<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+
+<span class="org-haskell-definition">l2</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">NatLens'</span> <span class="org-haskell-type">V2</span> <span class="org-haskell-type">Identity</span>
+<span class="org-haskell-definition">l2</span> <span class="org-haskell-operator">=</span> lens <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">V2</span> u v<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-constructor">Identity</span> <span class="org-haskell-operator">$</span> u<span class="org-haskell-operator">*</span>u <span class="org-haskell-operator">+</span> v<span class="org-haskell-operator">*</span>v<span class="org-rainbow-delimiters-depth-1">)</span>
+          <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">V2</span> u v<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">Identity</span> dwdk<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-constructor">V2</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">2</span><span class="org-haskell-operator">*</span>u<span class="org-haskell-operator">*</span>dwdk<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-highlight-numbers-number">2</span><span class="org-haskell-operator">*</span>v<span class="org-haskell-operator">*</span>dwdk<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span>
+
+<span class="org-haskell-definition">l3</span> <span class="org-haskell-operator">::</span> <span class="org-haskell-type">NatLens'</span> <span class="org-haskell-type">V2</span> <span class="org-haskell-type">Identity</span>
+<span class="org-haskell-definition">l3</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">proc</span> dz <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-keyword">do</span>
+  dy <span class="org-haskell-operator">&lt;-</span> l2 <span class="org-haskell-operator">-&lt;</span> dz
+  dx <span class="org-haskell-operator">&lt;-</span> l1 <span class="org-haskell-operator">-&lt;</span> dy
+  returnA <span class="org-haskell-operator">-&lt;</span> dx
+</pre>
+</div>
+<p>
+To compute <code>l3 x</code>, use <code>l3</code> as a getter; to compute <code>grad l3 x</code>, use <code>l3</code> as a setter.
+Note that when using <code>proc</code> notation, we plumb the cotangent covectors around, not the normal values.
+</p>
+
+<p>
+This can be extended to work with <code>accelerate</code> in a straightforward way - just write a different slightly different <code>NatLens</code> type alias that uses <code>Exp</code> or <code>Acc</code> as appropriate!
+We can also maintain some sharing if we don't use the <code>lens</code> combinator, and write our lenses by hand.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org53271bc" class="outline-2">
+<h2 id="org53271bc">Conclusion</h2>
+<div class="outline-text-2" id="text-org53271bc">
+<p>
+This is a very nice start to a library for efficient and user-extensible semi-automatic differentiation.
+Abandoning type safety for arrow/proc notation is critical to making this generally useful, but unfortunate.
+Gelisam's <a href="https://github.com/gelisam/category-syntax">category-syntax</a> library could be a good starting point for a type-safe quasiquoter.
+In a practical library, the <code>FADT</code> and <code>RADT</code> types, and the <code>NatLens</code> type should have a way to accumulate constraints that extend <code>Num</code> on the <code>forall</code>'d type
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">FADT</span> c m f g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">FADT</span> <span class="org-rainbow-delimiters-depth-1">{</span>
+  getFADT <span class="org-haskell-operator">::</span> <span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> c a <span class="org-haskell-operator">=&gt;</span> f a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-2">(</span>g a, f a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-3">(</span>g a<span class="org-rainbow-delimiters-depth-3">)</span><span class="org-rainbow-delimiters-depth-2">)</span>
+<span class="org-rainbow-delimiters-depth-1">}</span>
+
+<span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">RADT</span> c m f g <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RADT</span> <span class="org-rainbow-delimiters-depth-1">{</span>
+  getRADT <span class="org-haskell-operator">::</span> <span class="org-haskell-keyword">forall</span> a<span class="org-haskell-operator">.</span> c a <span class="org-haskell-operator">=&gt;</span> f a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-2">(</span>g a, g a <span class="org-haskell-operator">-&gt;</span> m <span class="org-rainbow-delimiters-depth-3">(</span>f a<span class="org-rainbow-delimiters-depth-3">)</span><span class="org-rainbow-delimiters-depth-2">)</span>
+<span class="org-rainbow-delimiters-depth-1">}</span>
+</pre>
+</div>
+<p>
+since we can't even write a <code>Floating</code> instance right now!
+This will likely require the <code>constraints</code> package, since we want to say something like "this works for any constraint <code>c</code> that entails <code>Floating</code>."
+</p>
+
+<p>
+ADDENDUM: Unfortunately, after implementing this approach in some more depth, I discovered the lens with arrow notation approach ends up having some serious usabillity issues.
+For nontrivial code, it is <i>extremely</i> confusing to replace all arguments to your functions with cotangent vectors, and the type errors are just awful.
+In my opinion, the best way to implement an AD library backed by <code>accelerate</code> would be to stick to the type in Conal's paper, and ensure all operations are natural "by hand."
+The library would use Backpack to provide a signature that contains a subset of Accelerate functions, which would no longer take normal arrays as arguments; they would take <code>RAD a b</code> arguments, for suitable <code>a</code> and <code>b</code>.
+As an example, this is what a <code>zipWith</code> combinator might look like (using lists instead of <code>accelerate</code> arrays for now.)
+</p>
+<div class="org-src-container">
+<pre class="src src-haskell"><span class="org-haskell-keyword">newtype</span> <span class="org-haskell-type">RAD</span> a b <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RAD</span> <span class="org-rainbow-delimiters-depth-1">{</span> getRAD <span class="org-haskell-operator">::</span> a <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span>b, b <span class="org-haskell-operator">-&gt;</span> a<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-rainbow-delimiters-depth-1">}</span>
+
+<span class="org-haskell-keyword">type</span> <span class="org-haskell-type">Tuple</span> a <span class="org-haskell-operator">=</span> <span class="org-haskell-type">Product</span> <span class="org-haskell-type">Identity</span> <span class="org-haskell-type">Identity</span> a
+
+<span class="org-haskell-keyword">pattern</span> <span class="org-haskell-constructor">Tuple</span> <span class="org-haskell-operator">::</span> a <span class="org-haskell-operator">-&gt;</span> a <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Tuple</span> a
+<span class="org-haskell-keyword">pattern</span> <span class="org-haskell-constructor">Tuple</span> a b <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">Pair</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Identity</span> a<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">Identity</span> b<span class="org-rainbow-delimiters-depth-1">)</span>
+
+<span class="org-haskell-definition">zipWithA</span>
+  <span class="org-haskell-operator">::</span> <span class="org-haskell-type">Num</span> a
+  <span class="org-haskell-operator">=&gt;</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-keyword">forall</span> s<span class="org-haskell-operator">.</span> <span class="org-haskell-type">Reifies</span> s <span class="org-haskell-type">Tape</span> <span class="org-haskell-operator">=&gt;</span> <span class="org-haskell-type">Tuple</span> <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-type">Reverse</span> s a<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">Reverse</span> s a<span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">RAD</span> b <span class="org-rainbow-delimiters-depth-1">[</span>a<span class="org-rainbow-delimiters-depth-1">]</span>
+  <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">RAD</span> c <span class="org-rainbow-delimiters-depth-1">[</span>a<span class="org-rainbow-delimiters-depth-1">]</span>
+  <span class="org-haskell-operator">-&gt;</span> <span class="org-haskell-type">RAD</span> <span class="org-rainbow-delimiters-depth-1">(</span>b,c<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">[</span>a<span class="org-rainbow-delimiters-depth-1">]</span>
+<span class="org-haskell-definition">zipWithA</span> f <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">RAD</span> g<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-constructor">RAD</span> h<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> <span class="org-haskell-constructor">RAD</span> <span class="org-haskell-operator">$</span> <span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-1">(</span>u, v<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">-&gt;</span>
+  <span class="org-haskell-keyword">let</span> <span class="org-rainbow-delimiters-depth-1">(</span>x, dx<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> g u
+      <span class="org-rainbow-delimiters-depth-1">(</span>y, dy<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> h v
+      <span class="org-rainbow-delimiters-depth-1">(</span>z, dudv<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> unzip <span class="org-haskell-operator">$</span> zipWith <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span>a b <span class="org-haskell-operator">-&gt;</span> grad' f <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">Tuple</span> a b<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span> x y
+      dz' dz <span class="org-haskell-operator">=</span> <span class="org-haskell-keyword">let</span> <span class="org-rainbow-delimiters-depth-1">(</span>du,dv<span class="org-rainbow-delimiters-depth-1">)</span> <span class="org-haskell-operator">=</span> unzip <span class="org-haskell-operator">$</span> fmap <span class="org-rainbow-delimiters-depth-1">(</span><span class="org-haskell-operator">\</span><span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-constructor">Tuple</span> u' v'<span class="org-rainbow-delimiters-depth-2">)</span> <span class="org-haskell-operator">-&gt;</span> <span class="org-rainbow-delimiters-depth-2">(</span>u', v'<span class="org-rainbow-delimiters-depth-2">)</span><span class="org-rainbow-delimiters-depth-1">)</span> dudv
+               <span class="org-haskell-keyword">in</span> <span class="org-rainbow-delimiters-depth-1">(</span>dx <span class="org-haskell-operator">$</span> zipWith <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-operator">*</span><span class="org-rainbow-delimiters-depth-2">)</span> du dz, dy <span class="org-haskell-operator">$</span> zipWith <span class="org-rainbow-delimiters-depth-2">(</span><span class="org-haskell-operator">*</span><span class="org-rainbow-delimiters-depth-2">)</span> dv dz<span class="org-rainbow-delimiters-depth-1">)</span>
+  <span class="org-haskell-keyword">in</span> <span class="org-rainbow-delimiters-depth-1">(</span>z, dz'<span class="org-rainbow-delimiters-depth-1">)</span>
+</pre>
+</div>
+
+<p>
+To demonstrate these ideas, I will write an implementation of the <a href="https://arxiv.org/abs/1111.4246">No U-Turn Sampler</a> backed by <code>accelerate</code>.
+</p>
+</div>
+</div>
+<div id="footnotes">
+<h2 class="footnotes">Footnotes: </h2>
+<div id="text-footnotes">
+
+<div class="footdef"><sup><a id="fn.1" class="footnum" href="#fnr.1" role="doc-backlink">1</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+The main idea of this post started as an alternate solution to the problems described in section 15 of the simple essence paper, entitled "Scaling Up". However, I eventually realized that the core <code>D a b</code> type is what needed to be generalized to make an <code>accelerate</code> implementation possible.
+</p></div></div>
+
+
+</div>
+</div>
